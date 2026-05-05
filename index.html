@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WashDog Pro | Station de lavage canine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <h1>WashDog Pro</h1>
+      <p>Plateforme professionnelle de gestion multi-boutiques pour station de lavage canine.</p>
+    </div>
+  </header>
+
+  <main class="container layout">
+    <section class="card">
+      <h2>Templates de boutique</h2>
+      <form id="templateForm" class="form-grid">
+        <input type="hidden" id="templateId" />
+        <label>Nom du template<input id="templateName" required /></label>
+        <label>Description<textarea id="templateDesc" rows="2" required></textarea></label>
+        <button type="submit">Enregistrer template</button>
+      </form>
+      <div id="templatesList" class="list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Boutiques</h2>
+      <form id="shopForm" class="form-grid">
+        <input type="hidden" id="shopId" />
+        <label>Nom de la boutique<input id="shopName" required /></label>
+        <label>Adresse postale<input id="shopAddress" required /></label>
+        <label>Téléphone<input id="shopPhone" required /></label>
+        <label>Heures d'ouverture<input id="shopHours" placeholder="Lun-Sam 9h-19h" required /></label>
+        <label>Latitude<input id="shopLat" type="number" step="any" required /></label>
+        <label>Longitude<input id="shopLng" type="number" step="any" required /></label>
+        <label>Services proposés (séparés par virgule)
+          <input id="shopServices" placeholder="Lavage express, Séchage, Shampoing premium" required />
+        </label>
+        <label>Template associé
+          <select id="shopTemplate" required></select>
+        </label>
+        <button type="submit">Enregistrer boutique</button>
+      </form>
+      <div id="shopsList" class="list"></div>
+    </section>
+
+    <section class="card wide">
+      <h2>Vitrine des boutiques</h2>
+      <div id="showcase" class="shop-grid"></div>
+    </section>
+
+    <section class="card">
+      <h2>Espace client (par boutique)</h2>
+      <form id="clientForm" class="form-grid">
+        <input type="hidden" id="clientId" />
+        <label>Nom complet<input id="clientName" required /></label>
+        <label>Email<input id="clientEmail" type="email" required /></label>
+        <label>Boutique rattachée<select id="clientShop" required></select></label>
+        <button type="submit">Créer / Modifier client</button>
+      </form>
+      <div id="clientsList" class="list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Gestion des chiens</h2>
+      <form id="dogForm" class="form-grid">
+        <input type="hidden" id="dogId" />
+        <label>Client<select id="dogClient" required></select></label>
+        <label>Nom du chien<input id="dogName" required /></label>
+        <label>Race<input id="dogBreed" required /></label>
+        <label>Poids (kg)<input id="dogWeight" type="number" step="0.1" required /></label>
+        <button type="submit">Ajouter / Modifier chien</button>
+      </form>
+      <div class="inline-actions">
+        <select id="washDogSelect"></select>
+        <button id="addWashBtn" type="button">Enregistrer un lavage (QR)</button>
+      </div>
+      <div id="dogsList" class="list"></div>
+    </section>
+  </main>
+
+  <footer class="container footer">
+    <p>© 2026 WashDog Pro - Démo de gestion complète.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
