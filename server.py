@@ -1,4 +1,5 @@
 import os, sqlite3, hashlib, hmac, secrets
+from html import escape
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
@@ -52,6 +53,11 @@ def parse_post(environ):
     q=parse_qs(data)
     return {k:v[0] for k,v in q.items()}
 
+def esc(value):
+    if value is None:
+        return ''
+    return escape(str(value), quote=True)
+
 def html(title,body,user=None):
     nav='<div class="nav"><a href="/">Accueil</a><a href="/shops">Vitrines</a>'
     if user and user['role']=='admin': nav+='<a href="/admin">Admin boutiques</a>'
@@ -59,7 +65,7 @@ def html(title,body,user=None):
     if user: nav+='<a href="/logout">Déconnexion</a>'
     else: nav+='<a href="/login">Connexion</a><a href="/register">Inscription client</a>'
     nav+='</div>'
-    return f"<!doctype html><html><head><meta charset='utf-8'><title>{title}</title><style>{CSS}</style></head><body><header><h1>WashDog Pro</h1>{nav}</header><main>{body}</main></body></html>".encode()
+    return f"<!doctype html><html><head><meta charset='utf-8'><title>{esc(title)}</title><style>{CSS}</style></head><body><header><h1>WashDog Pro</h1>{nav}</header><main>{body}</main></body></html>".encode()
 
 def redirect(start_response,to,cookie=None):
     headers=[('Location',to)]
@@ -72,12 +78,12 @@ def app(environ,start_response):
         start_response('200 OK',[('Content-Type','text/html')]);return [html('Accueil','<div class="card"><h2>Plateforme dynamique multi-pages</h2><p>Vitrines publiques, accès admin et client sécurisés.</p></div>',user)]
     if path=='/shops':
         con=db(); rows=con.execute('SELECT * FROM shops').fetchall(); con.close()
-        cards=''.join([f"<div class='card'><h3>{r['name']}</h3><p>{r['address']}<br>{r['phone']}<br>{r['hours']}<br>{r['services']}</p></div>" for r in rows]) or '<div class="card">Aucune boutique.</div>'
+        cards=''.join([f"<div class='card'><h3>{esc(r['name'])}</h3><p>{esc(r['address'])}<br>{esc(r['phone'])}<br>{esc(r['hours'])}<br>{esc(r['services'])}</p></div>" for r in rows]) or '<div class="card">Aucune boutique.</div>'
         start_response('200 OK',[('Content-Type','text/html')]); return [html('Vitrines',cards,user)]
     if path=='/register':
         if method=='GET':
             con=db();shops=con.execute('SELECT id,name FROM shops').fetchall();con.close()
-            opts=''.join([f"<option value='{s['id']}'>{s['name']}</option>" for s in shops])
+            opts=''.join([f"<option value='{esc(s['id'])}'>{esc(s['name'])}</option>" for s in shops])
             body=f"<div class='card'><h2>Inscription client</h2><form method='post'><input name='name' placeholder='Nom' required><input name='email' type='email' required><input name='password' type='password' required><select name='shop_id' required>{opts}</select><button>Créer compte</button></form></div>"
             start_response('200 OK',[('Content-Type','text/html')]);return [html('Inscription',body,user)]
         d=parse_post(environ); con=db()
@@ -110,9 +116,9 @@ def app(environ,start_response):
             if d.get('type')=='shop': con.execute('INSERT INTO shops(name,address,phone,hours,services,lat,lng,template_id) VALUES(?,?,?,?,?,?,?,?)',(d['name'],d['address'],d['phone'],d['hours'],d['services'],d['lat'],d['lng'],d['template_id']))
             con.commit()
         tpls=con.execute('SELECT * FROM templates').fetchall(); shops=con.execute('SELECT * FROM shops').fetchall(); con.close()
-        trows=''.join([f"<li>{t['name']} - {t['description']}</li>" for t in tpls])
-        srows=''.join([f"<li>{s['name']} ({s['address']})</li>" for s in shops])
-        opts=''.join([f"<option value='{t['id']}'>{t['name']}</option>" for t in tpls])
+        trows=''.join([f"<li>{esc(t['name'])} - {esc(t['description'])}</li>" for t in tpls])
+        srows=''.join([f"<li>{esc(s['name'])} ({esc(s['address'])})</li>" for s in shops])
+        opts=''.join([f"<option value='{esc(t['id'])}'>{esc(t['name'])}</option>" for t in tpls])
         body=f"""
 <div class='card'><h2>Admin - Templates</h2><form method='post'><input type='hidden' name='type' value='template'><input name='name' required><input name='description' required><button>Ajouter template</button></form><ul>{trows}</ul></div>
 <div class='card'><h2>Admin - Boutiques</h2><form method='post'>
@@ -122,7 +128,7 @@ def app(environ,start_response):
     if path=='/client':
         if not user or user['role']!='client': return redirect(start_response,'/login')
         con=db(); dogs=con.execute('SELECT * FROM dogs WHERE client_id=?',(user['id'],)).fetchall(); con.close()
-        body=f"<div class='card'><h2>Espace client</h2><p>Bienvenue {user['name']} ({user['email']})</p><p>Boutique ID: {user['shop_id']}</p></div>" + ''.join([f"<div class='card'><strong>{d['name']}</strong> - lavages: {d['washes']}</div>" for d in dogs])
+        body=f"<div class='card'><h2>Espace client</h2><p>Bienvenue {esc(user['name'])} ({esc(user['email'])})</p><p>Boutique ID: {esc(user['shop_id'])}</p></div>" + ''.join([f"<div class='card'><strong>{esc(d['name'])}</strong> - lavages: {esc(d['washes'])}</div>" for d in dogs])
         start_response('200 OK',[('Content-Type','text/html')]); return [html('Client',body,user)]
 
     if path=='/dogs':
@@ -134,7 +140,7 @@ def app(environ,start_response):
             if d.get('action')=='wash': con.execute('UPDATE dogs SET washes=washes+1 WHERE id=? AND client_id=?',(d['dog_id'],user['id']))
             con.commit()
         dogs=con.execute('SELECT * FROM dogs WHERE client_id=?',(user['id'],)).fetchall(); con.close()
-        rows=''.join([f"<div class='card'><h4>{d['name']} ({d['breed']}, {d['weight']}kg)</h4><p>Lavages: {d['washes']}</p><form method='post'><input type='hidden' name='action' value='wash'><input type='hidden' name='dog_id' value='{d['id']}'><button>Ajouter lavage (QR logique)</button></form></div>" for d in dogs])
+        rows=''.join([f"<div class='card'><h4>{esc(d['name'])} ({esc(d['breed'])}, {esc(d['weight'])}kg)</h4><p>Lavages: {esc(d['washes'])}</p><form method='post'><input type='hidden' name='action' value='wash'><input type='hidden' name='dog_id' value='{esc(d['id'])}'><button>Ajouter lavage (QR logique)</button></form></div>" for d in dogs])
         body="<div class='card'><h2>Mes chiens</h2><form method='post'><input type='hidden' name='action' value='create'><input name='name' required placeholder='Nom'><input name='breed' required placeholder='Race'><input name='weight' type='number' step='0.1' required placeholder='Poids'><button>Ajouter chien</button></form></div>"+rows
         start_response('200 OK',[('Content-Type','text/html')]); return [html('Chiens',body,user)]
 
