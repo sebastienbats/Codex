@@ -19,6 +19,7 @@ ADMIN_TABS = [
     ('/admin/templates', 'Templates'),
     ('/admin/shops', 'Boutiques'),
     ('/admin/clients', 'Clients'),
+    ('/admin/managers', 'Managers'),
     ('/admin/database', 'Base de données'),
     ('/admin/security', 'Sécurité'),
 ]
@@ -44,12 +45,15 @@ def init():
     c.executescript('''
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT,email TEXT UNIQUE,password TEXT,role TEXT,shop_id INTEGER);
 CREATE TABLE IF NOT EXISTS templates(id INTEGER PRIMARY KEY,name TEXT,description TEXT);
-CREATE TABLE IF NOT EXISTS shops(id INTEGER PRIMARY KEY,name TEXT,address TEXT,phone TEXT,hours TEXT,services TEXT,lat REAL,lng REAL,template_id INTEGER,photo_path TEXT);
+CREATE TABLE IF NOT EXISTS shops(id INTEGER PRIMARY KEY,name TEXT,address TEXT,email TEXT,phone TEXT,hours TEXT,services TEXT,lat REAL,lng REAL,template_id INTEGER,photo_path TEXT);
 CREATE TABLE IF NOT EXISTS dogs(id INTEGER PRIMARY KEY,client_id INTEGER,name TEXT,breed TEXT,weight REAL,washes INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
+CREATE TABLE IF NOT EXISTS manager_shops(manager_id INTEGER,shop_id INTEGER,PRIMARY KEY(manager_id,shop_id));
 ''')
     columns = [row['name'] for row in c.execute('PRAGMA table_info(shops)').fetchall()]
+    if 'email' not in columns:
+        c.execute('ALTER TABLE shops ADD COLUMN email TEXT')
     if 'photo_path' not in columns:
         c.execute('ALTER TABLE shops ADD COLUMN photo_path TEXT')
     admin = c.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
@@ -102,6 +106,17 @@ def parse_post(environ):
     body = environ['wsgi.input'].read(size)
     parsed = parse_qs(body.decode(errors='ignore'))
     return {key: values[0] for key, values in parsed.items()}
+
+
+def parse_post_multi(environ):
+    size = int(environ.get('CONTENT_LENGTH') or 0)
+    body = environ['wsgi.input'].read(size)
+    return parse_qs(body.decode(errors='ignore'))
+
+
+def first_value(parsed, key, default=''):
+    values = parsed.get(key) or []
+    return values[0] if values else default
 
 
 def parse_multipart(environ):
@@ -223,7 +238,7 @@ def render_public_shops(user):
     for row in rows:
         image = f"<img class='shop-photo' src='/{escape(row['photo_path'])}' alt='Photo boutique'>" if row['photo_path'] else ''
         cards.append(
-            f"<div class='card'><h3>{escape(row['name'] or '')}</h3>{image}<p>{escape(row['address'] or '')}<br>{escape(row['phone'] or '')}<br>{escape(row['hours'] or '')}<br>{escape(row['services'] or '')}</p></div>"
+            f"<div class='card'><h3>{escape(row['name'] or '')}</h3>{image}<p>{escape(row['address'] or '')}<br>{escape(row['email'] or '')}<br>{escape(row['phone'] or '')}<br>{escape(row['hours'] or '')}<br>{escape(row['services'] or '')}</p></div>"
         )
     return html_page('Vitrines', ''.join(cards) or '<div class="card">Aucune boutique.</div>', user)
 
@@ -280,12 +295,12 @@ def admin_shops(environ, start_response, user):
         photo = save_upload(files['shop_photo'], UPLOAD_DIR, 'shop_') if files.get('shop_photo') else None
         con = db()
         if data.get('type') == 'shop_create':
-            con.execute('INSERT INTO shops(name,address,phone,hours,services,lat,lng,template_id,photo_path) VALUES(?,?,?,?,?,?,?,?,?)', (data.get('name', ''), data.get('address', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo))
+            con.execute('INSERT INTO shops(name,address,email,phone,hours,services,lat,lng,template_id,photo_path) VALUES(?,?,?,?,?,?,?,?,?,?)', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo))
         elif data.get('type') == 'shop_update':
             if photo:
-                con.execute('UPDATE shops SET name=?,address=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=?,photo_path=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo, data.get('id')))
+                con.execute('UPDATE shops SET name=?,address=?,email=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=?,photo_path=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo, data.get('id')))
             else:
-                con.execute('UPDATE shops SET name=?,address=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, data.get('id')))
+                con.execute('UPDATE shops SET name=?,address=?,email=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, data.get('id')))
         elif data.get('type') == 'shop_delete':
             con.execute('DELETE FROM shops WHERE id=?', (data.get('id'),))
         con.commit()
@@ -297,18 +312,85 @@ def admin_shops(environ, start_response, user):
     con.close()
     tpl_options = options(templates, empty=True)
     rows = ''.join([
-        f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['photo_path'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='shop_delete'><input type='hidden' name='id' value='{shop['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['photo_path'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='shop_delete'><input type='hidden' name='id' value='{shop['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for shop in shops
     ])
     body = f"""
-<div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>template_id</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
+<div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>template_id</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
-  <div class='card'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
+  <div class='card'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
 </div>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des boutiques', admin_shell('/admin/shops', 'Gestion des boutiques', body), user)]
+
+
+def manager_shop_labels(con, manager_id):
+    rows = con.execute(
+        'SELECT s.id,s.name FROM manager_shops ms JOIN shops s ON s.id=ms.shop_id WHERE ms.manager_id=? ORDER BY s.name',
+        (manager_id,),
+    ).fetchall()
+    return ', '.join([f"{row['id']} - {row['name']}" for row in rows]) or 'Aucune boutique référente'
+
+
+def sync_manager_shops(con, manager_id, shop_ids):
+    con.execute('DELETE FROM manager_shops WHERE manager_id=?', (manager_id,))
+    for shop_id in shop_ids:
+        if shop_id:
+            con.execute('INSERT OR IGNORE INTO manager_shops(manager_id,shop_id) VALUES(?,?)', (manager_id, shop_id))
+
+
+def admin_managers(environ, start_response, user):
+    blocked = require_admin(user, start_response)
+    if blocked:
+        return blocked
+    if environ['REQUEST_METHOD'] == 'POST':
+        parsed = parse_post_multi(environ)
+        action = first_value(parsed, 'type')
+        shop_ids = parsed.get('shop_ids', [])
+        con = db()
+        if action == 'manager_create':
+            cursor = con.execute(
+                'INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)',
+                (first_value(parsed, 'name'), first_value(parsed, 'email'), hash_pw(first_value(parsed, 'password')), 'manager'),
+            )
+            sync_manager_shops(con, cursor.lastrowid, shop_ids)
+        elif action == 'manager_update':
+            manager_id = first_value(parsed, 'id')
+            con.execute(
+                'UPDATE users SET name=?,email=? WHERE id=? AND role="manager"',
+                (first_value(parsed, 'name'), first_value(parsed, 'email'), manager_id),
+            )
+            if first_value(parsed, 'password'):
+                con.execute('UPDATE users SET password=? WHERE id=? AND role="manager"', (hash_pw(first_value(parsed, 'password')), manager_id))
+            sync_manager_shops(con, manager_id, shop_ids)
+        elif action == 'manager_delete':
+            manager_id = first_value(parsed, 'id')
+            con.execute('DELETE FROM manager_shops WHERE manager_id=?', (manager_id,))
+            con.execute('DELETE FROM users WHERE id=? AND role="manager"', (manager_id,))
+        con.commit()
+        con.close()
+        return redirect(start_response, '/admin/managers')
+    con = db()
+    managers = con.execute("SELECT * FROM users WHERE role='manager' ORDER BY id DESC").fetchall()
+    shops = con.execute('SELECT * FROM shops ORDER BY name').fetchall()
+    rows = ''.join([
+        f"<tr><td>{manager['id']}</td><td>{escape(manager['name'] or '')}</td><td>{escape(manager['email'] or '')}</td><td>{escape(manager_shop_labels(con, manager['id']))}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='manager_delete'><input type='hidden' name='id' value='{manager['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        for manager in managers
+    ])
+    shop_options = ''.join([f"<option value='{shop['id']}'>{shop['id']} - {escape(shop['name'] or '')}</option>" for shop in shops])
+    con.close()
+    body = f"""
+<div class='card'><h3>Références boutiques</h3><p><strong>Admin :</strong> référent sur toutes les boutiques.</p><p><strong>Managers :</strong> référents sur une ou plusieurs boutiques sélectionnées ci-dessous.</p></div>
+<div class='card'><h3>Liste des managers</h3><table class='table'><tr><th>id</th><th>name</th><th>email</th><th>boutiques de référence</th><th>action</th></tr>{rows}</table></div>
+<div class='grid'>
+  <div class='card'><h3>Création manager</h3><form method='post'><input type='hidden' name='type' value='manager_create'><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' required><label>shop_ids</label><select name='shop_ids' multiple size='6' required>{shop_options}</select><small>Maintenir Ctrl/Cmd pour sélectionner plusieurs boutiques.</small><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification manager</h3><form method='post'><input type='hidden' name='type' value='manager_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_ids</label><select name='shop_ids' multiple size='6' required>{shop_options}</select><small>La sélection remplace les boutiques de référence actuelles.</small><button>Modifier</button></form></div>
+</div>
+"""
+    start_response('200 OK', [('Content-Type', 'text/html')])
+    return [html_page('Gestion des managers', admin_shell('/admin/managers', 'Gestion des managers', body), user)]
 
 
 def admin_clients(environ, start_response, user):
@@ -526,6 +608,8 @@ def app(environ, start_response):
         return admin_shops(environ, start_response, user)
     if path == '/admin/clients':
         return admin_clients(environ, start_response, user)
+    if path == '/admin/managers':
+        return admin_managers(environ, start_response, user)
     if path == '/admin/database':
         return admin_database(environ, start_response, user)
     if path == '/admin/security':
