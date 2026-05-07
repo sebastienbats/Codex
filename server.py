@@ -18,6 +18,7 @@ body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}head
 ADMIN_TABS = [
     ('/admin/templates', 'Templates'),
     ('/admin/shops', 'Boutiques'),
+    ('/admin/services', 'Services'),
     ('/admin/clients', 'Clients'),
     ('/admin/managers', 'Managers'),
     ('/admin/dogs', 'Chiens'),
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS manager_shops(manager_id INTEGER,shop_id INTEGER,PRIMARY KEY(manager_id,shop_id));
 CREATE TABLE IF NOT EXISTS stock_items(id INTEGER PRIMARY KEY,shop_id INTEGER,name TEXT,sku TEXT,quantity REAL,unit TEXT,min_quantity REAL,updated_at TEXT);
+CREATE TABLE IF NOT EXISTS shop_services(id INTEGER PRIMARY KEY,shop_id INTEGER,name TEXT,category TEXT,description TEXT,price REAL,active INTEGER DEFAULT 1,updated_at TEXT);
 ''')
     user_columns = [row['name'] for row in c.execute('PRAGMA table_info(users)').fetchall()]
     user_migrations = {'first_name': 'TEXT', 'phone': 'TEXT', 'vcard': 'TEXT', 'birth_date': 'TEXT', 'registered_at': 'TEXT', 'avatar_path': 'TEXT'}
@@ -166,7 +168,7 @@ def html_page(title, body, user=None):
     if user and user['role'] == 'admin':
         nav += '<a href="/admin/templates">Admin</a>'
     if user and user['role'] == 'manager':
-        nav += '<a href="/admin/dogs">Manager</a><a href="/admin/shops?tab=stock">Stock</a>'
+        nav += '<a href="/admin/dogs">Manager</a><a href="/admin/shops?tab=stock">Stock</a><a href="/admin/services">Services</a>'
     if user and user['role'] == 'client':
         nav += '<a href="/client">Client</a><a href="/dogs">Chiens</a>'
     nav += '<a href="/logout">Déconnexion</a>' if user else '<a href="/login">Connexion</a><a href="/register">Inscription</a>'
@@ -375,6 +377,71 @@ def render_stock_management(environ, start_response, user):
     return [html_page('Gestion du stock', admin_shell('/admin/shops', 'Gestion des boutiques', body), user)]
 
 
+def service_category_options(selected=''):
+    categories = ['Prestations de base', 'Prestations spécialisées', 'Services additionnels bien-être']
+    return ''.join([f"<option value='{escape(category)}'{' selected' if category == selected else ''}>{escape(category)}</option>" for category in categories])
+
+
+def allowed_service_shops(con, user):
+    return allowed_stock_shops(con, user)
+
+
+def service_shop_allowed(shops, shop_id):
+    return stock_shop_allowed(shops, shop_id)
+
+
+def service_item_allowed(con, shops, service_id):
+    row = con.execute('SELECT shop_id FROM shop_services WHERE id=?', (service_id,)).fetchone()
+    return bool(row and service_shop_allowed(shops, row['shop_id']))
+
+
+def service_select_options(con):
+    rows = con.execute('SELECT ss.*,s.name AS shop_name FROM shop_services ss JOIN shops s ON s.id=ss.shop_id WHERE ss.active=1 ORDER BY s.name,ss.category,ss.name').fetchall()
+    if not rows:
+        return "<option value='A définir'>Aucun service disponible - à définir après création</option>"
+    return ''.join([f"<option value='{escape(row['name'] or '')}'>{escape(row['shop_name'] or '')} · {escape(row['category'] or '')} · {escape(row['name'] or '')}</option>" for row in rows])
+
+
+def admin_services(environ, start_response, user):
+    blocked = require_admin_or_manager(user, start_response)
+    if blocked:
+        return blocked
+    con = db()
+    shops = allowed_service_shops(con, user)
+    if environ['REQUEST_METHOD'] == 'POST':
+        data = parse_post(environ)
+        if service_shop_allowed(shops, data.get('shop_id')):
+            if data.get('type') == 'service_create':
+                con.execute('INSERT INTO shop_services(shop_id,name,category,description,price,active,updated_at) VALUES(?,?,?,?,?,?,datetime("now"))', (data.get('shop_id'), data.get('name', ''), data.get('category', ''), data.get('description', ''), data.get('price') or 0, 1 if data.get('active') == '1' else 0))
+            elif data.get('type') == 'service_update' and (user['role'] == 'admin' or service_item_allowed(con, shops, data.get('id'))):
+                con.execute('UPDATE shop_services SET shop_id=?,name=?,category=?,description=?,price=?,active=?,updated_at=datetime("now") WHERE id=?', (data.get('shop_id'), data.get('name', ''), data.get('category', ''), data.get('description', ''), data.get('price') or 0, 1 if data.get('active') == '1' else 0, data.get('id')))
+            elif data.get('type') == 'service_delete' and (user['role'] == 'admin' or service_item_allowed(con, shops, data.get('id'))):
+                con.execute('DELETE FROM shop_services WHERE id=? AND shop_id=?', (data.get('id'), data.get('shop_id')))
+            con.commit()
+        con.close()
+        return redirect(start_response, '/admin/services')
+    shop_ids = [str(shop['id']) for shop in shops]
+    if shop_ids:
+        placeholders = ','.join(['?'] * len(shop_ids))
+        items = con.execute(f'SELECT ss.*,s.name AS shop_name FROM shop_services ss JOIN shops s ON s.id=ss.shop_id WHERE ss.shop_id IN ({placeholders}) ORDER BY s.name,ss.category,ss.name', shop_ids).fetchall()
+    else:
+        items = []
+    shop_options = ''.join([f"<option value='{shop['id']}'>{shop['id']} - {escape(shop['name'] or '')}</option>" for shop in shops])
+    rows = ''.join([f"<tr><td>{item['id']}</td><td>{escape(item['shop_name'] or '')}</td><td>{escape(item['category'] or '')}</td><td>{escape(item['name'] or '')}</td><td>{escape(item['description'] or '')}</td><td>{escape(str(item['price'] or 0))}</td><td>{'Oui' if item['active'] else 'Non'}</td><td>{escape(item['updated_at'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='service_delete'><input type='hidden' name='id' value='{item['id']}'><input type='hidden' name='shop_id' value='{item['shop_id']}'><button class='danger'>Supprimer</button></form></td></tr>" for item in items])
+    con.close()
+    scope = 'Admin : services de toutes les boutiques.' if user['role'] == 'admin' else 'Manager : services limités aux boutiques de référence.'
+    body = f"""
+<div class='card'><h3>Gestion des services des boutiques</h3><p>{scope}</p><p>Catégories : Prestations de base, Prestations spécialisées, Services additionnels bien-être.</p></div>
+<div class='card'><h3>Liste des services</h3><table class='table'><tr><th>id</th><th>boutique</th><th>category</th><th>name</th><th>description</th><th>price</th><th>active</th><th>updated_at</th><th>action</th></tr>{rows}</table></div>
+<div class='grid'>
+  <div class='card'><h3>Création service</h3><form method='post'><input type='hidden' name='type' value='service_create'><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>category</label><select name='category' required>{service_category_options()}</select><label>name</label><input name='name' required><label>description</label><textarea name='description'></textarea><label>price</label><input name='price' type='number' step='0.01' value='0'><label>active</label><select name='active'><option value='1'>Oui</option><option value='0'>Non</option></select><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification service</h3><form method='post'><input type='hidden' name='type' value='service_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>category</label><select name='category' required>{service_category_options()}</select><label>name</label><input name='name' required><label>description</label><textarea name='description'></textarea><label>price</label><input name='price' type='number' step='0.01'><label>active</label><select name='active'><option value='1'>Oui</option><option value='0'>Non</option></select><button>Modifier</button></form></div>
+</div>
+"""
+    start_response('200 OK', [('Content-Type', 'text/html')])
+    return [html_page('Gestion des services', admin_shell('/admin/services', 'Gestion des services des boutiques', body), user)]
+
+
 def admin_shops(environ, start_response, user):
     query = parse_qs(environ.get('QUERY_STRING', ''))
     if (query.get('tab') or [''])[0] == 'stock':
@@ -402,6 +469,7 @@ def admin_shops(environ, start_response, user):
     con = db()
     shops = con.execute('SELECT * FROM shops ORDER BY id DESC').fetchall()
     templates = con.execute('SELECT * FROM templates ORDER BY name').fetchall()
+    services_dropdown = service_select_options(con)
     con.close()
     tpl_options = options(templates, empty=True)
     rows = ''.join([
@@ -412,8 +480,8 @@ def admin_shops(environ, start_response, user):
 {shop_admin_subtabs('shops')}
 <div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>template_id</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
-  <div class='card'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
+  <div class='card'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
 </div>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
@@ -863,6 +931,8 @@ def app(environ, start_response):
         return admin_templates(environ, start_response, user)
     if path == '/admin/shops':
         return admin_shops(environ, start_response, user)
+    if path == '/admin/services':
+        return admin_services(environ, start_response, user)
     if path == '/admin/clients':
         return admin_clients(environ, start_response, user)
     if path == '/admin/managers':
