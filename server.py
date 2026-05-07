@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS dogs(id INTEGER PRIMARY KEY,client_id INTEGER,name TE
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS manager_shops(manager_id INTEGER,shop_id INTEGER,PRIMARY KEY(manager_id,shop_id));
+CREATE TABLE IF NOT EXISTS stock_items(id INTEGER PRIMARY KEY,shop_id INTEGER,name TEXT,sku TEXT,quantity REAL,unit TEXT,min_quantity REAL,updated_at TEXT);
 ''')
     user_columns = [row['name'] for row in c.execute('PRAGMA table_info(users)').fetchall()]
     user_migrations = {'first_name': 'TEXT', 'phone': 'TEXT', 'vcard': 'TEXT', 'birth_date': 'TEXT', 'registered_at': 'TEXT', 'avatar_path': 'TEXT'}
@@ -165,7 +166,7 @@ def html_page(title, body, user=None):
     if user and user['role'] == 'admin':
         nav += '<a href="/admin/templates">Admin</a>'
     if user and user['role'] == 'manager':
-        nav += '<a href="/admin/dogs">Manager</a>'
+        nav += '<a href="/admin/dogs">Manager</a><a href="/admin/shops?tab=stock">Stock</a>'
     if user and user['role'] == 'client':
         nav += '<a href="/client">Client</a><a href="/dogs">Chiens</a>'
     nav += '<a href="/logout">Déconnexion</a>' if user else '<a href="/login">Connexion</a><a href="/register">Inscription</a>'
@@ -299,7 +300,85 @@ def admin_templates(environ, start_response, user):
     return [html_page('Gestion des templates', admin_shell('/admin/templates', 'Gestion des templates', body), user)]
 
 
+def shop_admin_subtabs(active):
+    return "<div class='card tabs'><a class='tab{}' href='/admin/shops'>Boutiques</a><a class='tab{}' href='/admin/shops?tab=stock'>Stock</a></div>".format(' active' if active == 'shops' else '', ' active' if active == 'stock' else '')
+
+
+def allowed_stock_shops(con, user):
+    if user['role'] == 'admin':
+        return con.execute('SELECT * FROM shops ORDER BY name').fetchall()
+    return con.execute(
+        'SELECT s.* FROM manager_shops ms JOIN shops s ON s.id=ms.shop_id WHERE ms.manager_id=? ORDER BY s.name',
+        (user['id'],),
+    ).fetchall()
+
+
+def stock_shop_allowed(shops, shop_id):
+    return any(str(shop['id']) == str(shop_id) for shop in shops)
+
+
+def stock_item_allowed(con, shops, item_id):
+    row = con.execute('SELECT shop_id FROM stock_items WHERE id=?', (item_id,)).fetchone()
+    return bool(row and stock_shop_allowed(shops, row['shop_id']))
+
+
+def render_stock_management(environ, start_response, user):
+    blocked = require_admin_or_manager(user, start_response)
+    if blocked:
+        return blocked
+    con = db()
+    shops = allowed_stock_shops(con, user)
+    if environ['REQUEST_METHOD'] == 'POST':
+        data = parse_post(environ)
+        if stock_shop_allowed(shops, data.get('shop_id')):
+            if data.get('type') == 'stock_create':
+                con.execute(
+                    'INSERT INTO stock_items(shop_id,name,sku,quantity,unit,min_quantity,updated_at) VALUES(?,?,?,?,?,?,datetime("now"))',
+                    (data.get('shop_id'), data.get('name', ''), data.get('sku', ''), data.get('quantity') or 0, data.get('unit', ''), data.get('min_quantity') or 0),
+                )
+            elif data.get('type') == 'stock_update' and (user['role'] == 'admin' or stock_item_allowed(con, shops, data.get('id'))):
+                con.execute(
+                    'UPDATE stock_items SET shop_id=?,name=?,sku=?,quantity=?,unit=?,min_quantity=?,updated_at=datetime("now") WHERE id=?',
+                    (data.get('shop_id'), data.get('name', ''), data.get('sku', ''), data.get('quantity') or 0, data.get('unit', ''), data.get('min_quantity') or 0, data.get('id')),
+                )
+            elif data.get('type') == 'stock_delete' and (user['role'] == 'admin' or stock_item_allowed(con, shops, data.get('id'))):
+                con.execute('DELETE FROM stock_items WHERE id=? AND shop_id=?', (data.get('id'), data.get('shop_id')))
+            con.commit()
+        con.close()
+        return redirect(start_response, '/admin/shops?tab=stock')
+    shop_ids = [str(shop['id']) for shop in shops]
+    if shop_ids:
+        placeholders = ','.join(['?'] * len(shop_ids))
+        items = con.execute(f'''
+            SELECT si.*,s.name AS shop_name FROM stock_items si JOIN shops s ON s.id=si.shop_id
+            WHERE si.shop_id IN ({placeholders}) ORDER BY s.name,si.name
+        ''', shop_ids).fetchall()
+    else:
+        items = []
+    shop_options = ''.join([f"<option value='{shop['id']}'>{shop['id']} - {escape(shop['name'] or '')}</option>" for shop in shops])
+    rows = ''.join([
+        f"<tr><td>{item['id']}</td><td>{escape(item['shop_name'] or '')}</td><td>{escape(item['name'] or '')}</td><td>{escape(item['sku'] or '')}</td><td>{escape(str(item['quantity'] or 0))}</td><td>{escape(item['unit'] or '')}</td><td>{escape(str(item['min_quantity'] or 0))}</td><td>{escape(item['updated_at'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='stock_delete'><input type='hidden' name='id' value='{item['id']}'><input type='hidden' name='shop_id' value='{item['shop_id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        for item in items
+    ])
+    con.close()
+    scope = 'Admin : stock de toutes les boutiques.' if user['role'] == 'admin' else 'Manager : stock limité aux boutiques de référence.'
+    body = f"""
+{shop_admin_subtabs('stock')}
+<div class='card'><h3>Gestion du stock</h3><p>{scope}</p></div>
+<div class='card'><h3>Liste du stock par boutique</h3><table class='table'><tr><th>id</th><th>boutique</th><th>name</th><th>sku</th><th>quantity</th><th>unit</th><th>min_quantity</th><th>updated_at</th><th>action</th></tr>{rows}</table></div>
+<div class='grid'>
+  <div class='card'><h3>Création stock</h3><form method='post'><input type='hidden' name='type' value='stock_create'><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input name='name' required><label>sku</label><input name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01' value='0'><label>unit</label><input name='unit' placeholder='pièce, litre, kg...'><label>min_quantity</label><input name='min_quantity' type='number' step='0.01' value='0'><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification stock</h3><form method='post'><input type='hidden' name='type' value='stock_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input name='name' required><label>sku</label><input name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01'><label>unit</label><input name='unit'><label>min_quantity</label><input name='min_quantity' type='number' step='0.01'><button>Modifier</button></form></div>
+</div>
+"""
+    start_response('200 OK', [('Content-Type', 'text/html')])
+    return [html_page('Gestion du stock', admin_shell('/admin/shops', 'Gestion des boutiques', body), user)]
+
+
 def admin_shops(environ, start_response, user):
+    query = parse_qs(environ.get('QUERY_STRING', ''))
+    if (query.get('tab') or [''])[0] == 'stock':
+        return render_stock_management(environ, start_response, user)
     blocked = require_admin(user, start_response)
     if blocked:
         return blocked
@@ -330,6 +409,7 @@ def admin_shops(environ, start_response, user):
         for shop in shops
     ])
     body = f"""
+{shop_admin_subtabs('shops')}
 <div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>template_id</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
   <div class='card'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><input name='services' required><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
