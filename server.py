@@ -12,7 +12,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(IMPORT_DIR, exist_ok=True)
 
 CSS = '''
-body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}
+body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}.table tbody tr:nth-child(even){background:#f8fbff}.table th{background:#eaf1ff;cursor:pointer}.toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.toolbar input{max-width:320px;margin:0}.toolbar button{width:auto}.hidden{display:none}.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.tile{background:#fff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#e9f0ff;display:block;margin-bottom:.7rem}
 '''
 
 ADMIN_TABS = [
@@ -20,6 +20,7 @@ ADMIN_TABS = [
     ('/admin/shops', 'Boutiques'),
     ('/admin/clients', 'Clients'),
     ('/admin/managers', 'Managers'),
+    ('/admin/dogs', 'Chiens'),
     ('/admin/database', 'Base de données'),
     ('/admin/security', 'Sécurité'),
 ]
@@ -43,7 +44,7 @@ def init():
     con = db()
     c = con.cursor()
     c.executescript('''
-CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT,email TEXT UNIQUE,password TEXT,role TEXT,shop_id INTEGER);
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT,first_name TEXT,email TEXT UNIQUE,password TEXT,role TEXT,shop_id INTEGER,phone TEXT,vcard TEXT,birth_date TEXT,registered_at TEXT,avatar_path TEXT);
 CREATE TABLE IF NOT EXISTS templates(id INTEGER PRIMARY KEY,name TEXT,description TEXT);
 CREATE TABLE IF NOT EXISTS shops(id INTEGER PRIMARY KEY,name TEXT,address TEXT,email TEXT,phone TEXT,hours TEXT,services TEXT,lat REAL,lng REAL,template_id INTEGER,photo_path TEXT);
 CREATE TABLE IF NOT EXISTS dogs(id INTEGER PRIMARY KEY,client_id INTEGER,name TEXT,breed TEXT,weight REAL,washes INTEGER DEFAULT 0);
@@ -51,6 +52,11 @@ CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS manager_shops(manager_id INTEGER,shop_id INTEGER,PRIMARY KEY(manager_id,shop_id));
 ''')
+    user_columns = [row['name'] for row in c.execute('PRAGMA table_info(users)').fetchall()]
+    user_migrations = {'first_name': 'TEXT', 'phone': 'TEXT', 'vcard': 'TEXT', 'birth_date': 'TEXT', 'registered_at': 'TEXT', 'avatar_path': 'TEXT'}
+    for column, kind in user_migrations.items():
+        if column not in user_columns:
+            c.execute(f'ALTER TABLE users ADD COLUMN {column} {kind}')
     columns = [row['name'] for row in c.execute('PRAGMA table_info(shops)').fetchall()]
     if 'email' not in columns:
         c.execute('ALTER TABLE shops ADD COLUMN email TEXT')
@@ -59,8 +65,8 @@ CREATE TABLE IF NOT EXISTS manager_shops(manager_id INTEGER,shop_id INTEGER,PRIM
     admin = c.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
     if not admin:
         c.execute(
-            'INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)',
-            ('Admin', 'admin@washdog.local', hash_pw('admin123'), 'admin'),
+            'INSERT INTO users(name,first_name,email,password,role,registered_at) VALUES(?,?,?,?,?,datetime("now"))',
+            ('Admin', '', 'admin@washdog.local', hash_pw('admin123'), 'admin'),
         )
     con.commit()
     con.close()
@@ -158,6 +164,8 @@ def html_page(title, body, user=None):
     nav = '<div class="nav"><a href="/">Accueil</a><a href="/shops">Vitrines</a>'
     if user and user['role'] == 'admin':
         nav += '<a href="/admin/templates">Admin</a>'
+    if user and user['role'] == 'manager':
+        nav += '<a href="/admin/dogs">Manager</a>'
     if user and user['role'] == 'client':
         nav += '<a href="/client">Client</a><a href="/dogs">Chiens</a>'
     nav += '<a href="/logout">Déconnexion</a>' if user else '<a href="/login">Connexion</a><a href="/register">Inscription</a>'
@@ -175,6 +183,12 @@ def redirect(start_response, to, cookie=None):
 
 def require_admin(user, start_response):
     if not user or user['role'] != 'admin':
+        return redirect(start_response, '/login')
+    return None
+
+
+def require_admin_or_manager(user, start_response):
+    if not user or user['role'] not in ('admin', 'manager'):
         return redirect(start_response, '/login')
     return None
 
@@ -393,17 +407,113 @@ def admin_managers(environ, start_response, user):
     return [html_page('Gestion des managers', admin_shell('/admin/managers', 'Gestion des managers', body), user)]
 
 
+def manager_reference_shop_ids(con, manager_id):
+    rows = con.execute('SELECT shop_id FROM manager_shops WHERE manager_id=?', (manager_id,)).fetchall()
+    return [str(row['shop_id']) for row in rows]
+
+
+def dog_allowed(con, user, dog_id):
+    if user['role'] == 'admin':
+        return True
+    row = con.execute('SELECT u.shop_id FROM dogs d JOIN users u ON u.id=d.client_id WHERE d.id=?', (dog_id,)).fetchone()
+    return bool(row and str(row['shop_id']) in manager_reference_shop_ids(con, user['id']))
+
+
+def admin_dogs(environ, start_response, user):
+    blocked = require_admin_or_manager(user, start_response)
+    if blocked:
+        return blocked
+    con = db()
+    manager_shop_ids = manager_reference_shop_ids(con, user['id']) if user['role'] == 'manager' else []
+    if environ['REQUEST_METHOD'] == 'POST':
+        data = parse_post(environ)
+        action = data.get('type')
+        if action == 'dog_create':
+            client = con.execute('SELECT id,shop_id FROM users WHERE id=? AND role="client"', (data.get('client_id'),)).fetchone()
+            if client and (user['role'] == 'admin' or str(client['shop_id']) in manager_shop_ids):
+                con.execute(
+                    'INSERT INTO dogs(client_id,name,breed,weight,washes) VALUES(?,?,?,?,?)',
+                    (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0),
+                )
+        elif action == 'dog_update' and dog_allowed(con, user, data.get('id')):
+            new_client = con.execute('SELECT id,shop_id FROM users WHERE id=? AND role="client"', (data.get('client_id'),)).fetchone()
+            if new_client and (user['role'] == 'admin' or str(new_client['shop_id']) in manager_shop_ids):
+                con.execute(
+                    'UPDATE dogs SET client_id=?,name=?,breed=?,weight=?,washes=? WHERE id=?',
+                    (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0, data.get('id')),
+                )
+        elif action == 'dog_delete' and dog_allowed(con, user, data.get('id')):
+            con.execute('DELETE FROM dogs WHERE id=?', (data.get('id'),))
+        con.commit()
+        con.close()
+        return redirect(start_response, '/admin/dogs')
+    if user['role'] == 'admin':
+        dogs = con.execute("""
+            SELECT d.*,u.name AS client_name,u.email AS client_email,s.name AS shop_name,s.id AS shop_id
+            FROM dogs d JOIN users u ON u.id=d.client_id LEFT JOIN shops s ON s.id=u.shop_id
+            ORDER BY d.id DESC
+        """).fetchall()
+        clients = con.execute("SELECT u.*,s.name AS shop_name FROM users u LEFT JOIN shops s ON s.id=u.shop_id WHERE u.role='client' ORDER BY u.name").fetchall()
+        scope_note = 'Admin : accès à tous les chiens de toutes les boutiques.'
+    else:
+        if manager_shop_ids:
+            placeholders = ','.join(['?'] * len(manager_shop_ids))
+            dogs = con.execute(f"""
+                SELECT d.*,u.name AS client_name,u.email AS client_email,s.name AS shop_name,s.id AS shop_id
+                FROM dogs d JOIN users u ON u.id=d.client_id LEFT JOIN shops s ON s.id=u.shop_id
+                WHERE u.shop_id IN ({placeholders})
+                ORDER BY d.id DESC
+            """, manager_shop_ids).fetchall()
+            clients = con.execute(f"SELECT u.*,s.name AS shop_name FROM users u LEFT JOIN shops s ON s.id=u.shop_id WHERE u.role='client' AND u.shop_id IN ({placeholders}) ORDER BY u.name", manager_shop_ids).fetchall()
+        else:
+            dogs = []
+            clients = []
+        scope_note = 'Manager : accès limité aux chiens des clients rattachés aux boutiques de référence.'
+    client_options = ''.join([f"<option value='{client['id']}'>{client['id']} - {escape(client['name'] or '')} ({escape(client['shop_name'] or 'Sans boutique')})</option>" for client in clients])
+    rows = ''.join([
+        f"<tr><td>{dog['id']}</td><td>{escape(dog['name'] or '')}</td><td>{escape(dog['breed'] or '')}</td><td>{escape(str(dog['weight'] or ''))}</td><td>{dog['washes']}</td><td>{escape(dog['client_name'] or '')}<br><small>{escape(dog['client_email'] or '')}</small></td><td>{escape(str(dog['shop_id'] or ''))} - {escape(dog['shop_name'] or 'Sans boutique')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='dog_delete'><input type='hidden' name='id' value='{dog['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        for dog in dogs
+    ])
+    con.close()
+    body = f"""
+<div class='card'><h3>Périmètre d’accès</h3><p>{scope_note}</p></div>
+<div class='card'><h3>Liste des chiens</h3><table class='table'><tr><th>id</th><th>name</th><th>breed</th><th>weight</th><th>washes</th><th>client</th><th>boutique</th><th>action</th></tr>{rows}</table></div>
+<div class='grid'>
+  <div class='card'><h3>Création chien</h3><form method='post'><input type='hidden' name='type' value='dog_create'><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification chien</h3><form method='post'><input type='hidden' name='type' value='dog_update'><label>id</label><input name='id' required><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><button>Modifier</button></form></div>
+</div>
+"""
+    start_response('200 OK', [('Content-Type', 'text/html')])
+    return [html_page('Gestion des chiens', admin_shell('/admin/dogs', 'Gestion des chiens', body), user)]
+
+
 def admin_clients(environ, start_response, user):
     blocked = require_admin(user, start_response)
     if blocked:
         return blocked
     if environ['REQUEST_METHOD'] == 'POST':
-        data = parse_post(environ)
+        if 'multipart/form-data' in environ.get('CONTENT_TYPE', ''):
+            data, files = parse_multipart(environ)
+        else:
+            data, files = parse_post(environ), {}
+        avatar = save_upload(files['avatar'], UPLOAD_DIR, 'client_') if files.get('avatar') else None
         con = db()
         if data.get('type') == 'client_create':
-            con.execute('INSERT INTO users(name,email,password,role,shop_id) VALUES(?,?,?,?,?)', (data.get('name', ''), data.get('email', ''), hash_pw(data.get('password', '')), 'client', data.get('shop_id') or None))
+            con.execute(
+                'INSERT INTO users(name,first_name,email,password,role,shop_id,phone,vcard,birth_date,registered_at,avatar_path) VALUES(?,?,?,?,?,?,?,?,?,COALESCE(NULLIF(?,""),datetime("now")),?)',
+                (data.get('name', ''), data.get('first_name', ''), data.get('email', ''), hash_pw(data.get('password', '')), 'client', data.get('shop_id') or None, data.get('phone', ''), data.get('vcard', ''), data.get('birth_date', ''), data.get('registered_at', ''), avatar),
+            )
         elif data.get('type') == 'client_update':
-            con.execute('UPDATE users SET name=?,email=?,shop_id=? WHERE id=? AND role="client"', (data.get('name', ''), data.get('email', ''), data.get('shop_id') or None, data.get('id')))
+            if avatar:
+                con.execute(
+                    'UPDATE users SET name=?,first_name=?,email=?,shop_id=?,phone=?,vcard=?,birth_date=?,registered_at=COALESCE(NULLIF(?,""),registered_at),avatar_path=? WHERE id=? AND role="client"',
+                    (data.get('name', ''), data.get('first_name', ''), data.get('email', ''), data.get('shop_id') or None, data.get('phone', ''), data.get('vcard', ''), data.get('birth_date', ''), data.get('registered_at', ''), avatar, data.get('id')),
+                )
+            else:
+                con.execute(
+                    'UPDATE users SET name=?,first_name=?,email=?,shop_id=?,phone=?,vcard=?,birth_date=?,registered_at=COALESCE(NULLIF(?,""),registered_at) WHERE id=? AND role="client"',
+                    (data.get('name', ''), data.get('first_name', ''), data.get('email', ''), data.get('shop_id') or None, data.get('phone', ''), data.get('vcard', ''), data.get('birth_date', ''), data.get('registered_at', ''), data.get('id')),
+                )
             if data.get('password'):
                 con.execute('UPDATE users SET password=? WHERE id=? AND role="client"', (hash_pw(data.get('password')), data.get('id')))
         elif data.get('type') == 'client_delete':
@@ -413,24 +523,90 @@ def admin_clients(environ, start_response, user):
         con.close()
         return redirect(start_response, '/admin/clients')
     con = db()
-    clients = con.execute("SELECT * FROM users WHERE role='client' ORDER BY id DESC").fetchall()
+    clients = con.execute("SELECT * FROM users WHERE role='client' ORDER BY name COLLATE NOCASE, first_name COLLATE NOCASE").fetchall()
     shops = con.execute('SELECT * FROM shops ORDER BY name').fetchall()
     con.close()
     shop_options = options(shops, empty=True)
     rows = ''.join([
-        f"<tr><td>{client['id']}</td><td>{escape(client['name'] or '')}</td><td>{escape(client['email'] or '')}</td><td>{escape(str(client['shop_id'] or ''))}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='client_delete'><input type='hidden' name='id' value='{client['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr data-search='{escape((client['id'].__str__() + ' ' + (client['name'] or '') + ' ' + (client['first_name'] or '') + ' ' + (client['email'] or '') + ' ' + (client['phone'] or '') + ' ' + (client['vcard'] or '')).lower())}'><td>{client['id']}</td><td>{escape(client['name'] or '')}</td><td>{escape(client['first_name'] or '')}</td><td>{escape(client['email'] or '')}</td><td>{escape(client['vcard'] or '')}</td><td>{escape(client['birth_date'] or '')}</td><td>{escape(client['registered_at'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='client_delete'><input type='hidden' name='id' value='{client['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for client in clients
     ])
+    cards = ''.join([
+        f"<article class='tile client-tile' data-search='{escape(((client['name'] or '') + ' ' + (client['first_name'] or '') + ' ' + (client['email'] or '') + ' ' + (client['phone'] or '') + ' ' + (client['vcard'] or '')).lower())}'><img class='avatar' src='/{escape(client['avatar_path'] or '')}' alt='Avatar' onerror=\"this.style.display='none'\" {'' if client['avatar_path'] else 'style=\"display:none\"'}><h3>{escape(client['name'] or '')} {escape(client['first_name'] or '')}</h3><p><strong>@Mél :</strong> {escape(client['email'] or '')}<br><strong>Téléphone :</strong> {escape(client['phone'] or '')}<br><strong>vcard :</strong> {escape(client['vcard'] or '')}<br><strong>Date de naissance :</strong> {escape(client['birth_date'] or '')}<br><strong>Date d’enregistrement :</strong> {escape(client['registered_at'] or '')}</p></article>"
+        for client in sorted(clients, key=lambda item: ((item['name'] or '').lower(), (item['first_name'] or '').lower()))
+    ])
     body = f"""
-<div class='card'><h3>Liste des clients</h3><table class='table'><tr><th>id</th><th>name</th><th>email</th><th>shop_id</th><th>action</th></tr>{rows}</table></div>
-<div class='grid'>
-  <div class='card'><h3>Création client</h3><form method='post'><input type='hidden' name='type' value='client_create'><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' required><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification client</h3><form method='post'><input type='hidden' name='type' value='client_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Modifier</button></form></div>
+<div class='card toolbar'>
+  <button type='button' id='tableViewBtn'>Affichage tableau</button>
+  <button type='button' id='cardViewBtn'>Affichage vignettes</button>
+  <input id='clientSearch' placeholder='Recherche dynamique client...'>
+  <button type='button' id='exportCsvBtn'>Export CSV</button>
+  <button type='button' id='exportMdBtn'>Export Markdown</button>
+  <button type='button' id='exportPdfBtn'>Export PDF</button>
 </div>
+<div id='clientsTableView' class='card'><h3>Liste des clients - tableau</h3><table id='clientsTable' class='table'><thead><tr><th data-type='number'>ID</th><th>Nom</th><th>Prénom</th><th>@Mél</th><th>vcard</th><th>Date de naissance</th><th>Date d’enregistrement</th><th>action</th></tr></thead><tbody>{rows}</tbody></table></div>
+<div id='clientsCardView' class='card hidden'><h3>Liste des clients - vignettes</h3><div class='tile-grid'>{cards}</div></div>
+<div class='grid'>
+  <div class='card'><h3>Création client</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_create'><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' required><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification client</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Modifier</button></form></div>
+</div>
+<script>
+const tableView = document.getElementById('clientsTableView');
+const cardView = document.getElementById('clientsCardView');
+const search = document.getElementById('clientSearch');
+document.getElementById('tableViewBtn').onclick = () => {{ tableView.classList.remove('hidden'); cardView.classList.add('hidden'); }};
+document.getElementById('cardViewBtn').onclick = () => {{ cardView.classList.remove('hidden'); tableView.classList.add('hidden'); }};
+function visibleRows() {{ return Array.from(document.querySelectorAll('#clientsTable tbody tr')).filter(row => row.style.display !== 'none'); }}
+function filterClients() {{
+  const term = search.value.trim().toLowerCase();
+  document.querySelectorAll('#clientsTable tbody tr,.client-tile').forEach(item => {{ item.style.display = item.dataset.search.includes(term) ? '' : 'none'; }});
+}}
+search.addEventListener('input', filterClients);
+document.querySelectorAll('#clientsTable th').forEach((th, index) => {{
+  if (index === 7) return;
+  th.addEventListener('click', () => {{
+    const tbody = document.querySelector('#clientsTable tbody');
+    const asc = th.dataset.asc !== 'true';
+    th.dataset.asc = asc;
+    Array.from(tbody.rows).sort((a, b) => {{
+      const av = a.cells[index].innerText.trim();
+      const bv = b.cells[index].innerText.trim();
+      if (th.dataset.type === 'number') return asc ? Number(av) - Number(bv) : Number(bv) - Number(av);
+      return asc ? av.localeCompare(bv, 'fr') : bv.localeCompare(av, 'fr');
+    }}).forEach(row => tbody.appendChild(row));
+  }});
+}});
+function tableData() {{
+  const headers = Array.from(document.querySelectorAll('#clientsTable thead th')).slice(0, 7).map(th => th.innerText.trim());
+  const rows = visibleRows().map(row => Array.from(row.cells).slice(0, 7).map(cell => cell.innerText.trim()));
+  return {{ headers, rows }};
+}}
+function download(name, type, content) {{
+  const blob = new Blob([content], {{ type }});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}}
+document.getElementById('exportCsvBtn').onclick = () => {{
+  const data = tableData();
+  const esc = value => '"' + value.replaceAll('"', '""') + '"';
+  download('clients.csv', 'text/csv;charset=utf-8', [data.headers.map(esc).join(','), ...data.rows.map(row => row.map(esc).join(','))].join('\n'));
+}};
+document.getElementById('exportMdBtn').onclick = () => {{
+  const data = tableData();
+  const header = '| ' + data.headers.join(' | ') + ' |';
+  const sep = '| ' + data.headers.map(() => '---').join(' | ') + ' |';
+  const rows = data.rows.map(row => '| ' + row.join(' | ') + ' |');
+  download('clients.md', 'text/markdown;charset=utf-8', [header, sep, ...rows].join('\n'));
+}};
+document.getElementById('exportPdfBtn').onclick = () => {{
+  const popup = window.open('', '_blank');
+  popup.document.write('<html><head><title>clients.pdf</title><style>body{{font-family:Arial}} table{{width:100%;border-collapse:collapse}} th,td{{border:1px solid #ddd;padding:6px}} tr:nth-child(even){{background:#f8fbff}}</style></head><body><h1>Liste des clients</h1>' + document.getElementById('clientsTable').outerHTML + '</body></html>');
+  popup.document.close(); popup.print();
+}};
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des clients', admin_shell('/admin/clients', 'Gestion des clients', body), user)]
-
 
 def database_forms(active_path):
     return f"""
@@ -511,7 +687,7 @@ def register(environ, start_response, user):
         return [html_page('Inscription', body, user)]
     data = parse_post(environ)
     con = db()
-    con.execute('INSERT INTO users(name,email,password,role,shop_id) VALUES(?,?,?,?,?)', (data.get('name', ''), data.get('email', ''), hash_pw(data.get('password', '')), 'client', data.get('shop_id') or None))
+    con.execute('INSERT INTO users(name,first_name,email,password,role,shop_id,registered_at) VALUES(?,?,?,?,?,?,datetime("now"))', (data.get('name', ''), data.get('first_name', ''), data.get('email', ''), hash_pw(data.get('password', '')), 'client', data.get('shop_id') or None))
     con.commit()
     con.close()
     return redirect(start_response, '/login')
@@ -533,7 +709,8 @@ def login(environ, start_response, user):
     con.execute('INSERT INTO sessions(token,user_id) VALUES(?,?)', (token, found['id']))
     con.commit()
     con.close()
-    return redirect(start_response, '/admin/templates' if found['role'] == 'admin' else '/client', f"sid={token}.{sign(token)}; Path=/; HttpOnly")
+    target = '/admin/templates' if found['role'] == 'admin' else ('/admin/dogs' if found['role'] == 'manager' else '/client')
+    return redirect(start_response, target, f"sid={token}.{sign(token)}; Path=/; HttpOnly")
 
 
 def logout(environ, start_response):
@@ -601,7 +778,7 @@ def app(environ, start_response):
     if path == '/logout':
         return logout(environ, start_response)
     if path == '/admin':
-        return redirect(start_response, '/admin/templates')
+        return redirect(start_response, '/admin/dogs' if user and user['role'] == 'manager' else '/admin/templates')
     if path == '/admin/templates':
         return admin_templates(environ, start_response, user)
     if path == '/admin/shops':
@@ -610,6 +787,8 @@ def app(environ, start_response):
         return admin_clients(environ, start_response, user)
     if path == '/admin/managers':
         return admin_managers(environ, start_response, user)
+    if path == '/admin/dogs':
+        return admin_dogs(environ, start_response, user)
     if path == '/admin/database':
         return admin_database(environ, start_response, user)
     if path == '/admin/security':
