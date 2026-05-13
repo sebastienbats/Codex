@@ -695,13 +695,53 @@ def admin_clients(environ, start_response, user):
 <div id='clientsTableView' class='card'><h3>Liste des clients - tableau</h3><table id='clientsTable' class='table'><thead><tr><th data-type='number'>ID</th><th>Nom</th><th>Prénom</th><th>@Mél</th><th>vcard</th><th>Date de naissance</th><th>Date d’enregistrement</th><th>action</th></tr></thead><tbody>{rows}</tbody></table></div>
 <div id='clientsCardView' class='card hidden'><h3>Liste des clients - vignettes</h3><div class='tile-grid'>{cards}</div></div>
 <div class='grid'>
-  <div class='card'><h3>Création client</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_create'><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' required><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Créer</button></form></div>
+  <div class='card'><h3>Création client</h3><form id='clientCreateForm' method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_create'><label>import_vcard_3</label><input id='vcardImport' type='file' accept='.vcf,text/vcard,text/x-vcard'><small>Importer un fichier vCard version 3.0 pour pré-remplir Nom, Prénom, @Mél, Téléphone, vcard et Date de naissance.</small><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' required><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Créer</button></form></div>
   <div class='card'><h3>Édition / modification client</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Modifier</button></form></div>
 </div>
 <script>
 const tableView = document.getElementById('clientsTableView');
 const cardView = document.getElementById('clientsCardView');
 const search = document.getElementById('clientSearch');
+
+const vcardImport = document.getElementById('vcardImport');
+function unfoldVcard(text) {{
+  return text.replace(/\r?\n[ \t]/g, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+}}
+function vcardValue(lines, key) {{
+  const prefix = key.toUpperCase();
+  const line = lines.find(item => item.toUpperCase().startsWith(prefix + ':') || item.toUpperCase().startsWith(prefix + ';'));
+  return line ? line.slice(line.indexOf(':') + 1).trim() : '';
+}}
+function normalizeVcardDate(value) {{
+  const clean = value.trim();
+  if (/^\\d{{8}}$/.test(clean)) return clean.slice(0, 4) + '-' + clean.slice(4, 6) + '-' + clean.slice(6, 8);
+  return clean;
+}}
+function fillCreateClientFromVcard(text) {{
+  const lines = unfoldVcard(text);
+  const version = vcardValue(lines, 'VERSION');
+  if (version && version !== '3.0') alert('Attention : le fichier vCard importé n’est pas en version 3.0.');
+  const form = document.getElementById('clientCreateForm');
+  const n = vcardValue(lines, 'N').split(';');
+  const fullName = vcardValue(lines, 'FN');
+  const lastName = n[0] || fullName.split(' ').slice(-1).join(' ');
+  const firstName = n[1] || fullName.split(' ').slice(0, -1).join(' ');
+  form.elements.name.value = lastName || form.elements.name.value;
+  form.elements.first_name.value = firstName || form.elements.first_name.value;
+  form.elements.email.value = vcardValue(lines, 'EMAIL') || form.elements.email.value;
+  form.elements.phone.value = vcardValue(lines, 'TEL') || form.elements.phone.value;
+  form.elements.birth_date.value = normalizeVcardDate(vcardValue(lines, 'BDAY')) || form.elements.birth_date.value;
+  form.elements.vcard.value = fullName || 'vCard 3.0 importée';
+}}
+if (vcardImport) {{
+  vcardImport.addEventListener('change', event => {{
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => fillCreateClientFromVcard(String(reader.result || ''));
+    reader.readAsText(file);
+  }});
+}}
 document.getElementById('tableViewBtn').onclick = () => {{ tableView.classList.remove('hidden'); cardView.classList.add('hidden'); }};
 document.getElementById('cardViewBtn').onclick = () => {{ cardView.classList.remove('hidden'); tableView.classList.add('hidden'); }};
 function visibleRows() {{ return Array.from(document.querySelectorAll('#clientsTable tbody tr')).filter(row => row.style.display !== 'none'); }}
