@@ -1,0 +1,9 @@
+{
+  "name": "washdog-pro",
+  "version": "2.1.0",
+  "description": "Application Python WSGI multipage pour gérer une station de lavage canine.",
+  "main": "server.py",
+  "scripts": {
+    "start": "python3 server.py"
+  }
+}
