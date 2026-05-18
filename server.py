@@ -1,12 +1,12 @@
-import os, sqlite3, hashlib, hmac, secrets, shutil
+import os, re, sqlite3, hashlib, hmac, secrets, shutil
 from html import escape
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
-DB = 'washdog.db'
-UPLOAD_DIR = 'uploads'
-IMPORT_DIR = 'imports'
-SECRET = 'change-me-secret'
+DB = os.environ.get('WASHDOG_DB', 'washdog.db')
+UPLOAD_DIR = os.environ.get('WASHDOG_UPLOAD_DIR', 'uploads')
+IMPORT_DIR = os.environ.get('WASHDOG_IMPORT_DIR', 'imports')
+SECRET = os.environ.get('WASHDOG_SECRET', 'change-me-secret')
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(IMPORT_DIR, exist_ok=True)
@@ -34,7 +34,30 @@ def db():
 
 
 def hash_pw(password):
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 260000).hex()
+    return f'pbkdf2_sha256${salt}${digest}'
+
+
+def legacy_hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_pw(password, stored_hash):
+    if not stored_hash:
+        return False
+    if stored_hash.startswith('pbkdf2_sha256$'):
+        try:
+            _, salt, digest = stored_hash.split('$', 2)
+        except ValueError:
+            return False
+        candidate = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 260000).hex()
+        return hmac.compare_digest(candidate, digest)
+    return hmac.compare_digest(legacy_hash_pw(password), stored_hash)
+
+
+def is_legacy_password_hash(stored_hash):
+    return bool(stored_hash and not stored_hash.startswith('pbkdf2_sha256$'))
 
 
 def sign(value):
@@ -104,7 +127,7 @@ def current_user(environ):
     if not sid or '.' not in sid:
         return None
     token, sig = sid.split('.', 1)
-    if sign(token) != sig:
+    if not hmac.compare_digest(sign(token), sig):
         return None
     con = db()
     row = con.execute('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?', (token,)).fetchone()
@@ -134,7 +157,7 @@ def parse_multipart(environ):
     content_type = environ.get('CONTENT_TYPE', '')
     if 'multipart/form-data' not in content_type or 'boundary=' not in content_type:
         return {}, {}
-    boundary = content_type.split('boundary=', 1)[1].encode()
+    boundary = content_type.split('boundary=', 1)[1].split(';', 1)[0].strip().strip('\"').encode()
     size = int(environ.get('CONTENT_LENGTH') or 0)
     raw = environ['wsgi.input'].read(size)
     fields = {}
@@ -157,12 +180,35 @@ def parse_multipart(environ):
     return fields, files
 
 
+def safe_filename(filename):
+    base = os.path.basename(filename or 'upload')
+    cleaned = re.sub(r'[^A-Za-z0-9_.-]+', '_', base).strip('._')
+    return cleaned or 'upload'
+
+
 def save_upload(file_data, directory, prefix):
-    safe_name = secrets.token_hex(6) + '_' + os.path.basename(file_data['filename'])
-    path = os.path.join(directory, prefix + safe_name)
+    os.makedirs(directory, exist_ok=True)
+    safe_name = f"{prefix}{secrets.token_hex(6)}_{safe_filename(file_data.get('filename', 'upload'))}"
+    path = os.path.normpath(os.path.join(directory, safe_name))
+    root = os.path.abspath(directory)
+    if os.path.commonpath([root, os.path.abspath(path)]) != root:
+        raise ValueError('Chemin de fichier invalide')
     with open(path, 'wb') as output:
         output.write(file_data['content'])
     return path
+
+
+def uploaded_file_path(request_path):
+    prefix = '/uploads/'
+    if not request_path.startswith(prefix):
+        return None
+    relative_name = request_path[len(prefix):]
+    normalized = os.path.normpath(os.path.join(UPLOAD_DIR, relative_name))
+    root = os.path.abspath(UPLOAD_DIR)
+    candidate = os.path.abspath(normalized)
+    if os.path.commonpath([root, candidate]) != root:
+        return None
+    return normalized
 
 
 def html_page(title, body, user=None):
@@ -222,14 +268,20 @@ def handle_db_action(action, files=None):
         return f"Sauvegarde créée : {backup_name}"
     if action == 'db_import' and files.get('database_file'):
         uploaded = save_upload(files['database_file'], IMPORT_DIR, 'db_')
-        test_con = sqlite3.connect(uploaded)
-        result = test_con.execute('PRAGMA quick_check').fetchone()[0]
-        test_con.close()
-        if result == 'ok':
-            shutil.copyfile(DB, f"washdog_before_import_{secrets.token_hex(4)}.db")
+        try:
+            test_con = sqlite3.connect(uploaded)
+            result = test_con.execute('PRAGMA quick_check').fetchone()[0]
+            tables = {row[0] for row in test_con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            test_con.close()
+        except sqlite3.DatabaseError as exc:
+            return f"Import refusé : fichier SQLite invalide ({escape(str(exc))})."
+        required = {'users', 'shops', 'dogs', 'settings'}
+        if result == 'ok' and required.issubset(tables):
+            if os.path.exists(DB):
+                shutil.copyfile(DB, f"washdog_before_import_{secrets.token_hex(4)}.db")
             shutil.copyfile(uploaded, DB)
             return 'Base de données importée avec succès.'
-        return f"Import refusé : contrôle SQLite invalide ({escape(str(result))})."
+        return f"Import refusé : schéma WashDog invalide ou contrôle SQLite invalide ({escape(str(result))})."
     return ''
 
 
@@ -939,17 +991,18 @@ def login(environ, start_response, user):
         return [html_page('Connexion', body, user)]
     data = parse_post(environ)
     con = db()
-    found = con.execute('SELECT * FROM users WHERE email=? AND password=?', (data.get('email', ''), hash_pw(data.get('password', '')))).fetchone()
-    con.close()
-    if not found:
+    found = con.execute('SELECT * FROM users WHERE email=?', (data.get('email', ''),)).fetchone()
+    if not found or not verify_pw(data.get('password', ''), found['password']):
+        con.close()
         return redirect(start_response, '/login')
+    if is_legacy_password_hash(found['password']):
+        con.execute('UPDATE users SET password=? WHERE id=?', (hash_pw(data.get('password', '')), found['id']))
     token = secrets.token_hex(16)
-    con = db()
     con.execute('INSERT INTO sessions(token,user_id) VALUES(?,?)', (token, found['id']))
     con.commit()
     con.close()
     target = '/admin/templates' if found['role'] == 'admin' else ('/admin/dogs' if found['role'] == 'manager' else '/client')
-    return redirect(start_response, target, f"sid={token}.{sign(token)}; Path=/; HttpOnly")
+    return redirect(start_response, target, f"sid={token}.{sign(token)}; Path=/; HttpOnly; SameSite=Lax")
 
 
 def logout(environ, start_response):
@@ -959,7 +1012,7 @@ def logout(environ, start_response):
         con.execute('DELETE FROM sessions WHERE token=?', (sid.split('.')[0],))
         con.commit()
         con.close()
-    return redirect(start_response, '/', 'sid=;Path=/;Max-Age=0')
+    return redirect(start_response, '/', 'sid=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax')
 
 
 def client_home(environ, start_response, user):
@@ -997,8 +1050,8 @@ def app(environ, start_response):
     path = environ['PATH_INFO']
     user = current_user(environ)
     if path.startswith('/uploads/'):
-        file_path = path.lstrip('/')
-        if not os.path.isfile(file_path):
+        file_path = uploaded_file_path(path)
+        if not file_path or not os.path.isfile(file_path):
             start_response('404 Not Found', [('Content-Type', 'text/plain')])
             return [b'Not found']
         start_response('200 OK', [('Content-Type', 'application/octet-stream')])

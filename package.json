@@ -4,6 +4,7 @@
   "description": "Application Python WSGI multipage pour gérer une station de lavage canine.",
   "main": "server.py",
   "scripts": {
-    "start": "python3 server.py"
+    "start": "python3 server.py",
+    "test": "python3 -m unittest discover -s tests"
   }
 }
