@@ -345,6 +345,21 @@ def render_stock_management(environ, start_response, user):
                 )
             elif data.get('type') == 'stock_delete' and (user['role'] == 'admin' or stock_item_allowed(con, shops, data.get('id'))):
                 con.execute('DELETE FROM stock_items WHERE id=? AND shop_id=?', (data.get('id'), data.get('shop_id')))
+            elif data.get('type') in ('stock_scan_add', 'stock_scan_remove'):
+                sku = data.get('barcode', '').strip()
+                delta = float(data.get('scan_quantity') or 1)
+                existing = con.execute('SELECT * FROM stock_items WHERE shop_id=? AND sku=?', (data.get('shop_id'), sku)).fetchone()
+                if data.get('type') == 'stock_scan_add':
+                    if existing:
+                        con.execute('UPDATE stock_items SET quantity=quantity+?,updated_at=datetime("now") WHERE id=?', (delta, existing['id']))
+                    elif sku:
+                        con.execute(
+                            'INSERT INTO stock_items(shop_id,name,sku,quantity,unit,min_quantity,updated_at) VALUES(?,?,?,?,?,?,datetime("now"))',
+                            (data.get('shop_id'), data.get('scan_name') or f'Produit {sku}', sku, delta, data.get('scan_unit', ''), data.get('scan_min_quantity') or 0),
+                        )
+                elif existing:
+                    new_quantity = max(0, float(existing['quantity'] or 0) - delta)
+                    con.execute('UPDATE stock_items SET quantity=?,updated_at=datetime("now") WHERE id=?', (new_quantity, existing['id']))
             con.commit()
         con.close()
         return redirect(start_response, '/admin/shops?tab=stock')
@@ -367,11 +382,39 @@ def render_stock_management(environ, start_response, user):
     body = f"""
 {shop_admin_subtabs('stock')}
 <div class='card'><h3>Gestion du stock</h3><p>{scope}</p></div>
+<div class='card'><h3>Scan code-barres</h3><p>Placez le curseur dans <strong>barcode</strong>, scannez le produit, puis ajoutez ou retirez la quantité indiquée. Si le code-barres est déjà connu localement, les champs produit sont pré-remplis automatiquement.</p><form id='barcodeStockForm' method='post'><label>shop_id</label><select id='scanShop' name='shop_id' required>{shop_options}</select><label>barcode</label><input id='barcodeInput' name='barcode' autocomplete='off' inputmode='numeric' required><label>scan_name</label><input id='scanName' name='scan_name' placeholder='Nom du produit'><label>scan_quantity</label><input id='scanQuantity' name='scan_quantity' type='number' step='0.01' value='1'><label>scan_unit</label><input id='scanUnit' name='scan_unit' placeholder='pièce, litre, kg...'><label>scan_min_quantity</label><input id='scanMinQuantity' name='scan_min_quantity' type='number' step='0.01' value='0'><button name='type' value='stock_scan_add'>Ajouter au stock</button><button class='danger' name='type' value='stock_scan_remove'>Supprimer du stock</button></form></div>
 <div class='card'><h3>Liste du stock par boutique</h3><table class='table'><tr><th>id</th><th>boutique</th><th>name</th><th>sku</th><th>quantity</th><th>unit</th><th>min_quantity</th><th>updated_at</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
-  <div class='card'><h3>Création stock</h3><form method='post'><input type='hidden' name='type' value='stock_create'><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input name='name' required><label>sku</label><input name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01' value='0'><label>unit</label><input name='unit' placeholder='pièce, litre, kg...'><label>min_quantity</label><input name='min_quantity' type='number' step='0.01' value='0'><button>Créer</button></form></div>
+  <div class='card'><h3>Création stock</h3><form id='stockCreateForm' method='post'><input type='hidden' name='type' value='stock_create'><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input id='createStockName' name='name' required><label>sku</label><input id='createStockSku' name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01' value='0'><label>unit</label><input id='createStockUnit' name='unit' placeholder='pièce, litre, kg...'><label>min_quantity</label><input id='createStockMinQuantity' name='min_quantity' type='number' step='0.01' value='0'><button>Créer</button></form></div>
   <div class='card'><h3>Édition / modification stock</h3><form method='post'><input type='hidden' name='type' value='stock_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input name='name' required><label>sku</label><input name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01'><label>unit</label><input name='unit'><label>min_quantity</label><input name='min_quantity' type='number' step='0.01'><button>Modifier</button></form></div>
 </div>
+<script>
+const barcodeInput = document.getElementById('barcodeInput');
+const scanName = document.getElementById('scanName');
+const scanUnit = document.getElementById('scanUnit');
+const scanMinQuantity = document.getElementById('scanMinQuantity');
+const barcodeCatalog = JSON.parse(localStorage.getItem('washdog_barcode_catalog_v1') || '{{}}');
+function fillProductFromBarcode(code) {{
+  const product = barcodeCatalog[code];
+  if (!product) return;
+  scanName.value = product.name || scanName.value;
+  scanUnit.value = product.unit || scanUnit.value;
+  scanMinQuantity.value = product.min_quantity || scanMinQuantity.value;
+  document.getElementById('createStockSku').value = code;
+  document.getElementById('createStockName').value = product.name || '';
+  document.getElementById('createStockUnit').value = product.unit || '';
+  document.getElementById('createStockMinQuantity').value = product.min_quantity || 0;
+}}
+barcodeInput?.addEventListener('input', event => fillProductFromBarcode(event.target.value.trim()));
+document.getElementById('barcodeStockForm')?.addEventListener('submit', () => {{
+  const code = barcodeInput.value.trim();
+  if (code && scanName.value.trim()) {{
+    barcodeCatalog[code] = {{ name: scanName.value.trim(), unit: scanUnit.value.trim(), min_quantity: scanMinQuantity.value || 0 }};
+    localStorage.setItem('washdog_barcode_catalog_v1', JSON.stringify(barcodeCatalog));
+  }}
+}});
+barcodeInput?.focus();
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion du stock', admin_shell('/admin/shops', 'Gestion des boutiques', body), user)]

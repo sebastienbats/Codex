@@ -15,7 +15,7 @@ Puis ouvrir `http://localhost:8000`.
 - `/shops` : public (vitrines boutiques)
 - `/admin` redirige vers `/admin/templates` : privé (admin uniquement)
 - `/admin/templates` : gestion des templates (liste, création, édition/modification, suppression)
-- `/admin/shops` : gestion des boutiques (liste, création, édition/modification, suppression, photos) et onglet `Stock` pour la gestion du stock par boutique
+- `/admin/shops` : gestion des boutiques (liste, création, édition/modification, suppression, photos) et onglet `Stock` pour la gestion du stock par boutique avec ajout/retrait par scan code-barres
 - `/admin/services` : gestion des services des boutiques par l'admin et les managers référents (prestations de base, spécialisées et bien-être)
 - `/admin/clients` : gestion des clients (liste, création, édition/modification, suppression, affichage tableau/vignettes, recherche, tri, exports CSV/Markdown/PDF, import vCard 3.0 dans le formulaire de création)
 - `/admin/managers` : gestion des managers (liste, création, édition/modification, suppression, boutiques de référence)
