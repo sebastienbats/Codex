@@ -36,7 +36,8 @@ Après la première connexion, changez le mot de passe admin dans `/admin/securi
 
 ## Sécurité / accès
 - `/shops` : public (vitrines boutiques)
-- `/admin` redirige vers `/admin/templates` : privé (admin uniquement)
+- `/admin` redirige vers `/admin/dashboard` : privé (admin et managers référents)
+- `/admin/dashboard` : tableau de bord par boutique avec accès complet admin et vue filtrée manager, statistiques dynamiques en diagrammes à barres ou graphiques camembert
 - `/admin/templates` : gestion des templates (liste, création, édition/modification, suppression)
 - `/admin/shops` : gestion des boutiques (liste, création, édition/modification, suppression, photos, mode Libre service/Réservation) et onglet `Stock` pour la gestion du stock par boutique avec ajout/retrait par scan code-barres
 - `/admin/services` : gestion des services des boutiques par l'admin et les managers référents (prestations de base, spécialisées et bien-être)

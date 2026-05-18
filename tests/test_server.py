@@ -64,6 +64,73 @@ class WashDogServerTests(unittest.TestCase):
         self.assertTrue(admin['password'].startswith('pbkdf2_sha256$'))
         self.assertTrue(server.verify_pw('admin123', admin['password']))
 
+
+    def test_init_adds_dog_dashboard_columns(self):
+        con = server.db()
+        columns = {row['name'] for row in con.execute('PRAGMA table_info(dogs)').fetchall()}
+        con.close()
+
+        self.assertIn('age', columns)
+        self.assertIn('registered_at', columns)
+
+    def test_dashboard_admin_sees_all_shops_and_metrics(self):
+        con = server.db()
+        con.execute("INSERT INTO shops(id,name,address) VALUES(1,'Centre','Rue A')")
+        con.execute("INSERT INTO shops(id,name,address) VALUES(2,'Sud','Rue B')")
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,registered_at) VALUES(10,'Manager','m@example.test',?,'manager','2026-01-01')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute('INSERT INTO manager_shops(manager_id,shop_id) VALUES(10,1)')
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,shop_id,birth_date,registered_at) VALUES(20,'Client','c@example.test',?,'client',1,'1990-01-01','2026-01-02')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute(
+            "INSERT INTO dogs(client_id,name,breed,age,registered_at) VALUES(20,'Rex','Labrador',4,'2026-01-03')"
+        )
+        con.execute(
+            "INSERT INTO shop_services(shop_id,name,category,active) VALUES(1,'Lavage','Prestations de base',1)"
+        )
+        con.commit()
+        admin = con.execute("SELECT * FROM users WHERE role='admin'").fetchone()
+        con.close()
+
+        captured, start_response = self.start_response()
+        response = server.admin_dashboard(self.get_environ('/admin/dashboard'), start_response, admin)
+        html = b''.join(response).decode()
+
+        self.assertEqual(captured['status'], '200 OK')
+        self.assertIn('Centre', html)
+        self.assertIn('Sud', html)
+        self.assertIn('Clients par tranche d’âge', html)
+        self.assertIn('Labrador', html)
+        self.assertIn('Prestations de base', html)
+        self.assertIn('Graphiques camembert', html)
+        self.assertIn('Managers par boutique', html)
+
+    def test_dashboard_manager_is_limited_to_reference_shops(self):
+        con = server.db()
+        con.execute("INSERT INTO shops(id,name,address) VALUES(1,'Centre','Rue A')")
+        con.execute("INSERT INTO shops(id,name,address) VALUES(2,'Sud','Rue B')")
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,registered_at) VALUES(10,'Manager','m@example.test',?,'manager','2026-01-01')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute('INSERT INTO manager_shops(manager_id,shop_id) VALUES(10,2)')
+        con.commit()
+        manager = con.execute("SELECT * FROM users WHERE id=10").fetchone()
+        con.close()
+
+        captured, start_response = self.start_response()
+        response = server.admin_dashboard(self.get_environ('/admin/dashboard'), start_response, manager)
+        html = b''.join(response).decode()
+
+        self.assertEqual(captured['status'], '200 OK')
+        self.assertNotIn('Centre', html)
+        self.assertIn('Sud', html)
+        self.assertIn('Manager : vue filtrée', html)
+
     def test_login_sets_signed_http_only_same_site_cookie(self):
         captured, start_response = self.start_response()
         response = server.login(
@@ -75,7 +142,7 @@ class WashDogServerTests(unittest.TestCase):
         self.assertEqual(response, [b''])
         self.assertEqual(captured['status'], '302 Found')
         headers = dict(captured['headers'])
-        self.assertEqual(headers['Location'], '/admin/templates')
+        self.assertEqual(headers['Location'], '/admin/dashboard')
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         self.assertIn('SameSite=Lax', headers['Set-Cookie'])
         user = server.current_user(self.get_environ('/', headers['Set-Cookie']))

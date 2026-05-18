@@ -1,4 +1,5 @@
 import os, re, sqlite3, hashlib, hmac, secrets, shutil
+from datetime import date, datetime
 from html import escape
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
@@ -12,10 +13,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(IMPORT_DIR, exist_ok=True)
 
 CSS = '''
-body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}.table tbody tr:nth-child(even){background:#f8fbff}.table th{background:#eaf1ff;cursor:pointer}.toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.toolbar input{max-width:320px;margin:0}.toolbar button{width:auto}.hidden{display:none}.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.tile{background:#fff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#e9f0ff;display:block;margin-bottom:.7rem}
+body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}.table tbody tr:nth-child(even){background:#f8fbff}.table th{background:#eaf1ff;cursor:pointer}.toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.toolbar input{max-width:320px;margin:0}.toolbar button{width:auto}.hidden{display:none}.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.tile{background:#fff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#e9f0ff;display:block;margin-bottom:.7rem}.stat{font-size:2rem;font-weight:800;color:#0f6fff}.chart-card{min-height:260px}.bar-row{display:grid;grid-template-columns:minmax(120px,1fr) 3fr 56px;gap:.5rem;align-items:center;margin:.45rem 0}.bar-track{background:#e9f0ff;border-radius:999px;overflow:hidden;height:1rem}.bar-fill{background:#0f6fff;height:100%}.pie{width:180px;height:180px;border-radius:50%;margin:1rem auto;background:#e9f0ff}.legend{display:flex;flex-wrap:wrap;gap:.5rem}.legend span{display:inline-flex;align-items:center;gap:.25rem}.swatch{width:.8rem;height:.8rem;border-radius:3px;display:inline-block}.chart-pie{display:none}.dashboard.pie-mode .chart-bar{display:none}.dashboard.pie-mode .chart-pie{display:block}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.kpi{background:#f8fbff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}
 '''
 
 ADMIN_TABS = [
+    ('/admin/dashboard', 'Tableau de bord'),
     ('/admin/templates', 'Templates'),
     ('/admin/shops', 'Boutiques'),
     ('/admin/services', 'Services'),
@@ -71,7 +73,7 @@ def init():
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT,first_name TEXT,email TEXT UNIQUE,password TEXT,role TEXT,shop_id INTEGER,phone TEXT,vcard TEXT,birth_date TEXT,registered_at TEXT,avatar_path TEXT);
 CREATE TABLE IF NOT EXISTS templates(id INTEGER PRIMARY KEY,name TEXT,description TEXT);
 CREATE TABLE IF NOT EXISTS shops(id INTEGER PRIMARY KEY,name TEXT,address TEXT,email TEXT,phone TEXT,hours TEXT,services TEXT,lat REAL,lng REAL,template_id INTEGER,photo_path TEXT,operation_mode TEXT DEFAULT 'Libre service');
-CREATE TABLE IF NOT EXISTS dogs(id INTEGER PRIMARY KEY,client_id INTEGER,name TEXT,breed TEXT,weight REAL,washes INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS dogs(id INTEGER PRIMARY KEY,client_id INTEGER,name TEXT,breed TEXT,weight REAL,washes INTEGER DEFAULT 0,age INTEGER,registered_at TEXT);
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS manager_shops(manager_id INTEGER,shop_id INTEGER,PRIMARY KEY(manager_id,shop_id));
@@ -83,6 +85,11 @@ CREATE TABLE IF NOT EXISTS shop_services(id INTEGER PRIMARY KEY,shop_id INTEGER,
     for column, kind in user_migrations.items():
         if column not in user_columns:
             c.execute(f'ALTER TABLE users ADD COLUMN {column} {kind}')
+    dog_columns = [row['name'] for row in c.execute('PRAGMA table_info(dogs)').fetchall()]
+    dog_migrations = {'age': 'INTEGER', 'registered_at': 'TEXT'}
+    for column, kind in dog_migrations.items():
+        if column not in dog_columns:
+            c.execute(f'ALTER TABLE dogs ADD COLUMN {column} {kind}')
     columns = [row['name'] for row in c.execute('PRAGMA table_info(shops)').fetchall()]
     if 'email' not in columns:
         c.execute('ALTER TABLE shops ADD COLUMN email TEXT')
@@ -214,9 +221,9 @@ def uploaded_file_path(request_path):
 def html_page(title, body, user=None):
     nav = '<div class="nav"><a href="/">Accueil</a><a href="/shops">Vitrines</a>'
     if user and user['role'] == 'admin':
-        nav += '<a href="/admin/templates">Admin</a>'
+        nav += '<a href="/admin/dashboard">Admin</a>'
     if user and user['role'] == 'manager':
-        nav += '<a href="/admin/dogs">Manager</a><a href="/admin/shops?tab=stock">Stock</a><a href="/admin/services">Services</a>'
+        nav += '<a href="/admin/dashboard">Tableau de bord</a><a href="/admin/dogs">Manager</a><a href="/admin/shops?tab=stock">Stock</a><a href="/admin/services">Services</a>'
     if user and user['role'] == 'client':
         nav += '<a href="/client">Client</a><a href="/dogs">Chiens</a>'
     nav += '<a href="/logout">Déconnexion</a>' if user else '<a href="/login">Connexion</a><a href="/register">Inscription</a>'
@@ -321,6 +328,267 @@ def options(rows, selected=None, empty=False):
         html += f"<option value='{row['id']}'{sel}>{row['id']} - {escape(row['name'] or '')}</option>"
     return html
 
+
+DASHBOARD_COLORS = ['#0f6fff', '#12b76a', '#f79009', '#b42318', '#7a5af8', '#06aed4', '#db2777', '#64748b']
+AGE_BRACKETS = [(0, 20), (21, 40), (41, 60), (61, 80), (81, 100)]
+
+
+def parse_iso_date(value):
+    if not value:
+        return None
+    text = str(value).strip()[:10]
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%Y%m%d'):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def date_key(value):
+    parsed = parse_iso_date(value)
+    return parsed.isoformat() if parsed else 'Non daté'
+
+
+def years_between(value):
+    parsed = parse_iso_date(value)
+    if not parsed:
+        return None
+    today = date.today()
+    return today.year - parsed.year - ((today.month, today.day) < (parsed.month, parsed.day))
+
+
+def age_bracket_label(age):
+    if age in (None, ''):
+        return 'Non renseigné'
+    try:
+        numeric_age = int(age)
+    except (TypeError, ValueError):
+        return 'Non renseigné'
+    for low, high in AGE_BRACKETS:
+        if low <= numeric_age <= high:
+            return f'{low}-{high} ans'
+    return '100+ ans'
+
+
+def add_count(counter, key, amount=1):
+    counter[key] = counter.get(key, 0) + amount
+
+
+def sorted_counts(counter):
+    return sorted(counter.items(), key=lambda item: (-item[1], str(item[0])))
+
+
+def average_rates(dates):
+    parsed_dates = [parse_iso_date(item) for item in dates]
+    parsed_dates = [item for item in parsed_dates if item]
+    total = len(parsed_dates)
+    if not total:
+        return '0 / jour · 0 / semaine · 0 / mois · 0 / année'
+    first = min(parsed_dates)
+    days = max(1, (date.today() - first).days + 1)
+    weeks = max(1, days / 7)
+    months = max(1, days / 30.4375)
+    years = max(1, days / 365.25)
+    return f'{total / days:.2f} / jour · {total / weeks:.2f} / semaine · {total / months:.2f} / mois · {total / years:.2f} / année'
+
+
+def chart_html(title, counts, empty_label='Aucune donnée'):
+    items = sorted_counts(counts)
+    if not items:
+        return f"<div class='card chart-card'><h4>{escape(title)}</h4><p class='muted'>{empty_label}</p></div>"
+    max_value = max(value for _, value in items) or 1
+    bars = []
+    legends = []
+    start = 0
+    segments = []
+    total = sum(value for _, value in items) or 1
+    for index, (label, value) in enumerate(items):
+        color = DASHBOARD_COLORS[index % len(DASHBOARD_COLORS)]
+        width = max(3, round((value / max_value) * 100, 2))
+        safe_label = escape(str(label))
+        bars.append(
+            f"<div class='bar-row'><span>{safe_label}</span><div class='bar-track'><div class='bar-fill' style='width:{width}%;background:{color}'></div></div><strong>{value}</strong></div>"
+        )
+        end = start + (value / total) * 100
+        segments.append(f'{color} {start:.2f}% {end:.2f}%')
+        legends.append(f"<span><i class='swatch' style='background:{color}'></i>{safe_label} ({value})</span>")
+        start = end
+    pie_style = '; '.join(segments)
+    return f"""
+<div class='card chart-card'>
+  <h4>{escape(title)}</h4>
+  <div class='chart-bar'>{''.join(bars)}</div>
+  <div class='chart-pie'><div class='pie' style='background:conic-gradient({pie_style})'></div><div class='legend'>{''.join(legends)}</div></div>
+</div>
+"""
+
+
+def scoped_shop_ids(con, user):
+    if user['role'] == 'admin':
+        return [str(row['id']) for row in con.execute('SELECT id FROM shops ORDER BY name').fetchall()]
+    return manager_reference_shop_ids(con, user['id'])
+
+
+def fetch_dashboard_rows(con, shop_ids):
+    if not shop_ids:
+        return [], [], [], [], []
+    placeholders = ','.join(['?'] * len(shop_ids))
+    shops = con.execute(f'SELECT * FROM shops WHERE id IN ({placeholders}) ORDER BY name', shop_ids).fetchall()
+    managers = con.execute(f'''
+        SELECT u.*,ms.shop_id
+        FROM manager_shops ms JOIN users u ON u.id=ms.manager_id
+        WHERE u.role='manager' AND ms.shop_id IN ({placeholders})
+    ''', shop_ids).fetchall()
+    clients = con.execute(f'''
+        SELECT * FROM users
+        WHERE role='client' AND shop_id IN ({placeholders})
+    ''', shop_ids).fetchall()
+    dogs = con.execute(f'''
+        SELECT d.*,u.shop_id
+        FROM dogs d JOIN users u ON u.id=d.client_id
+        WHERE u.shop_id IN ({placeholders})
+    ''', shop_ids).fetchall()
+    services = con.execute(f'''
+        SELECT * FROM shop_services
+        WHERE shop_id IN ({placeholders})
+    ''', shop_ids).fetchall()
+    return shops, managers, clients, dogs, services
+
+
+def build_dashboard_stats(shops, managers, clients, dogs, services):
+    stats = {}
+    for shop in shops:
+        sid = str(shop['id'])
+        stats[sid] = {
+            'shop': shop,
+            'managers': [],
+            'clients': [],
+            'dogs': [],
+            'services': [],
+            'client_ages': {},
+            'dog_breeds': {},
+            'dog_ages': {},
+            'manager_dates': {},
+            'client_dates': {},
+            'dog_dates': {},
+            'service_types': {},
+        }
+    for manager in managers:
+        bucket = stats.get(str(manager['shop_id']))
+        if bucket is not None:
+            bucket['managers'].append(manager)
+            add_count(bucket['manager_dates'], date_key(manager['registered_at']))
+    for client in clients:
+        bucket = stats.get(str(client['shop_id']))
+        if bucket is not None:
+            bucket['clients'].append(client)
+            add_count(bucket['client_ages'], age_bracket_label(years_between(client['birth_date'])))
+            add_count(bucket['client_dates'], date_key(client['registered_at']))
+    for dog in dogs:
+        bucket = stats.get(str(dog['shop_id']))
+        if bucket is not None:
+            bucket['dogs'].append(dog)
+            add_count(bucket['dog_breeds'], dog['breed'] or 'Non renseignée')
+            add_count(bucket['dog_ages'], age_bracket_label(dog['age']))
+            add_count(bucket['dog_dates'], date_key(dog['registered_at']))
+    for service in services:
+        bucket = stats.get(str(service['shop_id']))
+        if bucket is not None:
+            bucket['services'].append(service)
+            add_count(bucket['service_types'], service['category'] or 'Non renseigné')
+    return stats
+
+
+def render_dashboard_overview(stats):
+    manager_counts = {}
+    client_counts = {}
+    dog_counts = {}
+    service_counts = {}
+    for bucket in stats.values():
+        label = bucket['shop']['name'] or f"Boutique #{bucket['shop']['id']}"
+        manager_counts[label] = len(bucket['managers'])
+        client_counts[label] = len(bucket['clients'])
+        dog_counts[label] = len(bucket['dogs'])
+        service_counts[label] = len(bucket['services'])
+    return f"""
+<div class='grid'>
+  {chart_html('Managers par boutique', manager_counts)}
+  {chart_html('Clients par boutique', client_counts)}
+  {chart_html('Chiens par boutique', dog_counts)}
+  {chart_html('Services par boutique', service_counts)}
+</div>
+"""
+
+
+def render_shop_dashboard(bucket):
+    shop = bucket['shop']
+    manager_dates = [row['registered_at'] for row in bucket['managers']]
+    client_dates = [row['registered_at'] for row in bucket['clients']]
+    dog_dates = [row['registered_at'] for row in bucket['dogs']]
+    kpis = f"""
+<div class='kpi-grid'>
+  <div class='kpi'><div class='stat'>{len(bucket['managers'])}</div><strong>Managers inscrits</strong></div>
+  <div class='kpi'><div class='stat'>{len(bucket['clients'])}</div><strong>Clients inscrits</strong></div>
+  <div class='kpi'><div class='stat'>{len(bucket['dogs'])}</div><strong>Chiens inscrits</strong></div>
+  <div class='kpi'><div class='stat'>{len(bucket['services'])}</div><strong>Services configurés</strong></div>
+</div>
+"""
+    averages = f"""
+<div class='card'>
+  <h4>Évolutions et moyennes</h4>
+  <p><strong>Managers par boutique :</strong> {escape(average_rates(manager_dates))}</p>
+  <p><strong>Clients inscrits par date :</strong> {escape(average_rates(client_dates))}</p>
+  <p><strong>Chiens inscrits par date :</strong> {escape(average_rates(dog_dates))}</p>
+</div>
+"""
+    return f"""
+<section class='card'>
+  <h3>{escape(shop['name'] or 'Boutique sans nom')}</h3>
+  <p class='muted'>Boutique #{shop['id']} · {escape(shop['address'] or 'Adresse non renseignée')}</p>
+  {kpis}
+</section>
+<div class='grid'>
+  {chart_html('Clients par tranche d’âge', bucket['client_ages'])}
+  {chart_html('Chiens par race', bucket['dog_breeds'])}
+  {chart_html('Chiens par âge', bucket['dog_ages'])}
+  {chart_html('Managers inscrits par date', bucket['manager_dates'])}
+  {chart_html('Clients inscrits par date', bucket['client_dates'])}
+  {chart_html('Chiens par date d’inscription', bucket['dog_dates'])}
+  {chart_html('Services par type', bucket['service_types'])}
+  {averages}
+</div>
+"""
+
+
+def admin_dashboard(environ, start_response, user):
+    blocked = require_admin_or_manager(user, start_response)
+    if blocked:
+        return blocked
+    con = db()
+    shop_ids = scoped_shop_ids(con, user)
+    shops, managers, clients, dogs, services = fetch_dashboard_rows(con, shop_ids)
+    stats = build_dashboard_stats(shops, managers, clients, dogs, services)
+    con.close()
+    scope = 'Admin : accès complet à toutes les boutiques.' if user['role'] == 'admin' else 'Manager : vue filtrée sur vos boutiques de référence.'
+    content = f"""
+<div id='dashboard' class='dashboard'>
+  <div class='card toolbar'>
+    <strong>{scope}</strong>
+    <button type='button' id='barChartBtn'>Diagrammes à barres</button>
+    <button type='button' id='pieChartBtn'>Graphiques camembert</button>
+  </div>
+  {render_dashboard_overview(stats) if shops else ''}
+  {''.join(render_shop_dashboard(stats[str(shop['id'])]) for shop in shops) if shops else "<div class='card'>Aucune boutique dans votre périmètre.</div>"}
+</div>
+<script>
+const dashboard = document.getElementById('dashboard');
+document.getElementById('barChartBtn').onclick = () => dashboard.classList.remove('pie-mode');
+document.getElementById('pieChartBtn').onclick = () => dashboard.classList.add('pie-mode');
+</script>
+"""
+    start_response('200 OK', [('Content-Type', 'text/html')])
+    return [html_page('Tableau de bord', admin_shell('/admin/dashboard', 'Tableau de bord par boutique', content), user)]
 
 def admin_templates(environ, start_response, user):
     blocked = require_admin(user, start_response)
@@ -617,7 +885,7 @@ def admin_managers(environ, start_response, user):
         con = db()
         if action == 'manager_create':
             cursor = con.execute(
-                'INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)',
+                'INSERT INTO users(name,email,password,role,registered_at) VALUES(?,?,?,?,datetime("now"))',
                 (first_value(parsed, 'name'), first_value(parsed, 'email'), hash_pw(first_value(parsed, 'password')), 'manager'),
             )
             sync_manager_shops(con, cursor.lastrowid, shop_ids)
@@ -683,15 +951,15 @@ def admin_dogs(environ, start_response, user):
             client = con.execute('SELECT id,shop_id FROM users WHERE id=? AND role="client"', (data.get('client_id'),)).fetchone()
             if client and (user['role'] == 'admin' or str(client['shop_id']) in manager_shop_ids):
                 con.execute(
-                    'INSERT INTO dogs(client_id,name,breed,weight,washes) VALUES(?,?,?,?,?)',
-                    (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0),
+                    'INSERT INTO dogs(client_id,name,breed,weight,washes,age,registered_at) VALUES(?,?,?,?,?,?,COALESCE(NULLIF(?,""),datetime("now")))',
+                    (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0, data.get('age') or None, data.get('registered_at', '')),
                 )
         elif action == 'dog_update' and dog_allowed(con, user, data.get('id')):
             new_client = con.execute('SELECT id,shop_id FROM users WHERE id=? AND role="client"', (data.get('client_id'),)).fetchone()
             if new_client and (user['role'] == 'admin' or str(new_client['shop_id']) in manager_shop_ids):
                 con.execute(
-                    'UPDATE dogs SET client_id=?,name=?,breed=?,weight=?,washes=? WHERE id=?',
-                    (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0, data.get('id')),
+                    'UPDATE dogs SET client_id=?,name=?,breed=?,weight=?,washes=?,age=?,registered_at=COALESCE(NULLIF(?,""),registered_at) WHERE id=?',
+                    (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0, data.get('age') or None, data.get('registered_at', ''), data.get('id')),
                 )
         elif action == 'dog_delete' and dog_allowed(con, user, data.get('id')):
             con.execute('DELETE FROM dogs WHERE id=?', (data.get('id'),))
@@ -722,16 +990,16 @@ def admin_dogs(environ, start_response, user):
         scope_note = 'Manager : accès limité aux chiens des clients rattachés aux boutiques de référence.'
     client_options = ''.join([f"<option value='{client['id']}'>{client['id']} - {escape(client['name'] or '')} ({escape(client['shop_name'] or 'Sans boutique')})</option>" for client in clients])
     rows = ''.join([
-        f"<tr><td>{dog['id']}</td><td>{escape(dog['name'] or '')}</td><td>{escape(dog['breed'] or '')}</td><td>{escape(str(dog['weight'] or ''))}</td><td>{dog['washes']}</td><td>{escape(dog['client_name'] or '')}<br><small>{escape(dog['client_email'] or '')}</small></td><td>{escape(str(dog['shop_id'] or ''))} - {escape(dog['shop_name'] or 'Sans boutique')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='dog_delete'><input type='hidden' name='id' value='{dog['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{dog['id']}</td><td>{escape(dog['name'] or '')}</td><td>{escape(dog['breed'] or '')}</td><td>{escape(str(dog['weight'] or ''))}</td><td>{dog['washes']}</td><td>{escape(str(dog['age'] or ''))}</td><td>{escape(dog['registered_at'] or '')}</td><td>{escape(dog['client_name'] or '')}<br><small>{escape(dog['client_email'] or '')}</small></td><td>{escape(str(dog['shop_id'] or ''))} - {escape(dog['shop_name'] or 'Sans boutique')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='dog_delete'><input type='hidden' name='id' value='{dog['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for dog in dogs
     ])
     con.close()
     body = f"""
 <div class='card'><h3>Périmètre d’accès</h3><p>{scope_note}</p></div>
-<div class='card'><h3>Liste des chiens</h3><table class='table'><tr><th>id</th><th>name</th><th>breed</th><th>weight</th><th>washes</th><th>client</th><th>boutique</th><th>action</th></tr>{rows}</table></div>
+<div class='card'><h3>Liste des chiens</h3><table class='table'><tr><th>id</th><th>name</th><th>breed</th><th>weight</th><th>washes</th><th>âge</th><th>inscription</th><th>client</th><th>boutique</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
-  <div class='card'><h3>Création chien</h3><form method='post'><input type='hidden' name='type' value='dog_create'><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification chien</h3><form method='post'><input type='hidden' name='type' value='dog_update'><label>id</label><input name='id' required><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><button>Modifier</button></form></div>
+  <div class='card'><h3>Création chien</h3><form method='post'><input type='hidden' name='type' value='dog_create'><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><label>age</label><input name='age' type='number' min='0'><label>registered_at</label><input name='registered_at' type='date'><button>Créer</button></form></div>
+  <div class='card'><h3>Édition / modification chien</h3><form method='post'><input type='hidden' name='type' value='dog_update'><label>id</label><input name='id' required><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><label>age</label><input name='age' type='number' min='0'><label>registered_at</label><input name='registered_at' type='date'><button>Modifier</button></form></div>
 </div>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
@@ -1001,7 +1269,7 @@ def login(environ, start_response, user):
     con.execute('INSERT INTO sessions(token,user_id) VALUES(?,?)', (token, found['id']))
     con.commit()
     con.close()
-    target = '/admin/templates' if found['role'] == 'admin' else ('/admin/dogs' if found['role'] == 'manager' else '/client')
+    target = '/admin/dashboard' if found['role'] in ('admin', 'manager') else '/client'
     return redirect(start_response, target, f"sid={token}.{sign(token)}; Path=/; HttpOnly; SameSite=Lax")
 
 
@@ -1033,14 +1301,14 @@ def client_dogs(environ, start_response, user):
     if environ['REQUEST_METHOD'] == 'POST':
         data = parse_post(environ)
         if data.get('action') == 'create':
-            con.execute('INSERT INTO dogs(client_id,name,breed,weight,washes) VALUES(?,?,?,?,0)', (user['id'], data.get('name', ''), data.get('breed', ''), data.get('weight') or None))
+            con.execute('INSERT INTO dogs(client_id,name,breed,weight,washes,age,registered_at) VALUES(?,?,?,?,0,?,datetime("now"))', (user['id'], data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('age') or None))
         if data.get('action') == 'wash':
             con.execute('UPDATE dogs SET washes=washes+1 WHERE id=? AND client_id=?', (data.get('dog_id'), user['id']))
         con.commit()
     dogs = con.execute('SELECT * FROM dogs WHERE client_id=? ORDER BY id DESC', (user['id'],)).fetchall()
     con.close()
-    rows = ''.join([f"<div class='card'><h4>ID={dog['id']} name={escape(dog['name'] or '')}</h4><p>breed={escape(dog['breed'] or '')} weight={escape(str(dog['weight'] or ''))} washes={dog['washes']}</p><form method='post'><input type='hidden' name='action' value='wash'><input type='hidden' name='dog_id' value='{dog['id']}'><button>Ajouter lavage</button></form></div>" for dog in dogs])
-    body = "<div class='card'><h2>Mes chiens</h2><form method='post'><input type='hidden' name='action' value='create'><label>name</label><input name='name'><label>breed</label><input name='breed'><label>weight</label><input type='number' step='0.1' name='weight'><button>Ajouter</button></form></div>" + rows
+    rows = ''.join([f"<div class='card'><h4>ID={dog['id']} name={escape(dog['name'] or '')}</h4><p>breed={escape(dog['breed'] or '')} weight={escape(str(dog['weight'] or ''))} age={escape(str(dog['age'] or ''))} registered_at={escape(dog['registered_at'] or '')} washes={dog['washes']}</p><form method='post'><input type='hidden' name='action' value='wash'><input type='hidden' name='dog_id' value='{dog['id']}'><button>Ajouter lavage</button></form></div>" for dog in dogs])
+    body = "<div class='card'><h2>Mes chiens</h2><form method='post'><input type='hidden' name='action' value='create'><label>name</label><input name='name'><label>breed</label><input name='breed'><label>weight</label><input type='number' step='0.1' name='weight'><label>age</label><input type='number' min='0' name='age'><button>Ajouter</button></form></div>" + rows
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Chiens', body, user)]
 
@@ -1070,7 +1338,9 @@ def app(environ, start_response):
     if path == '/logout':
         return logout(environ, start_response)
     if path == '/admin':
-        return redirect(start_response, '/admin/dogs' if user and user['role'] == 'manager' else '/admin/templates')
+        return redirect(start_response, '/admin/dashboard')
+    if path == '/admin/dashboard':
+        return admin_dashboard(environ, start_response, user)
     if path == '/admin/templates':
         return admin_templates(environ, start_response, user)
     if path == '/admin/shops':
