@@ -47,7 +47,7 @@ def init():
     c.executescript('''
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT,first_name TEXT,email TEXT UNIQUE,password TEXT,role TEXT,shop_id INTEGER,phone TEXT,vcard TEXT,birth_date TEXT,registered_at TEXT,avatar_path TEXT);
 CREATE TABLE IF NOT EXISTS templates(id INTEGER PRIMARY KEY,name TEXT,description TEXT);
-CREATE TABLE IF NOT EXISTS shops(id INTEGER PRIMARY KEY,name TEXT,address TEXT,email TEXT,phone TEXT,hours TEXT,services TEXT,lat REAL,lng REAL,template_id INTEGER,photo_path TEXT);
+CREATE TABLE IF NOT EXISTS shops(id INTEGER PRIMARY KEY,name TEXT,address TEXT,email TEXT,phone TEXT,hours TEXT,services TEXT,lat REAL,lng REAL,template_id INTEGER,photo_path TEXT,operation_mode TEXT DEFAULT 'Libre service');
 CREATE TABLE IF NOT EXISTS dogs(id INTEGER PRIMARY KEY,client_id INTEGER,name TEXT,breed TEXT,weight REAL,washes INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS shop_services(id INTEGER PRIMARY KEY,shop_id INTEGER,
         c.execute('ALTER TABLE shops ADD COLUMN email TEXT')
     if 'photo_path' not in columns:
         c.execute('ALTER TABLE shops ADD COLUMN photo_path TEXT')
+    if 'operation_mode' not in columns:
+        c.execute("ALTER TABLE shops ADD COLUMN operation_mode TEXT DEFAULT 'Libre service'")
     admin = c.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
     if not admin:
         c.execute(
@@ -255,7 +257,7 @@ def render_public_shops(user):
     for row in rows:
         image = f"<img class='shop-photo' src='/{escape(row['photo_path'])}' alt='Photo boutique'>" if row['photo_path'] else ''
         cards.append(
-            f"<div class='card'><h3>{escape(row['name'] or '')}</h3>{image}<p>{escape(row['address'] or '')}<br>{escape(row['email'] or '')}<br>{escape(row['phone'] or '')}<br>{escape(row['hours'] or '')}<br>{escape(row['services'] or '')}</p></div>"
+            f"<div class='card'><h3>{escape(row['name'] or '')}</h3>{image}<p>{escape(row['address'] or '')}<br>{escape(row['email'] or '')}<br>{escape(row['phone'] or '')}<br>{escape(row['hours'] or '')}<br>{escape(row['services'] or '')}<br>Mode : {escape(row['operation_mode'] or 'Libre service')}</p></div>"
         )
     return html_page('Vitrines', ''.join(cards) or '<div class="card">Aucune boutique.</div>', user)
 
@@ -489,42 +491,48 @@ def admin_shops(environ, start_response, user):
     query = parse_qs(environ.get('QUERY_STRING', ''))
     if (query.get('tab') or [''])[0] == 'stock':
         return render_stock_management(environ, start_response, user)
-    blocked = require_admin(user, start_response)
+    blocked = require_admin_or_manager(user, start_response)
     if blocked:
         return blocked
-    if environ['REQUEST_METHOD'] == 'POST':
+    if environ['REQUEST_METHOD'] == 'POST' and user['role'] == 'admin':
         multipart = 'multipart/form-data' in environ.get('CONTENT_TYPE', '')
         data, files = parse_multipart(environ) if multipart else (parse_post(environ), {})
         photo = save_upload(files['shop_photo'], UPLOAD_DIR, 'shop_') if files.get('shop_photo') else None
         con = db()
         if data.get('type') == 'shop_create':
-            con.execute('INSERT INTO shops(name,address,email,phone,hours,services,lat,lng,template_id,photo_path) VALUES(?,?,?,?,?,?,?,?,?,?)', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo))
+            con.execute('INSERT INTO shops(name,address,email,phone,hours,services,lat,lng,template_id,photo_path,operation_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?)', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo, data.get('operation_mode', 'Libre service')))
         elif data.get('type') == 'shop_update':
             if photo:
-                con.execute('UPDATE shops SET name=?,address=?,email=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=?,photo_path=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo, data.get('id')))
+                con.execute('UPDATE shops SET name=?,address=?,email=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=?,photo_path=?,operation_mode=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, photo, data.get('operation_mode', 'Libre service'), data.get('id')))
             else:
-                con.execute('UPDATE shops SET name=?,address=?,email=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, data.get('id')))
+                con.execute('UPDATE shops SET name=?,address=?,email=?,phone=?,hours=?,services=?,lat=?,lng=?,template_id=?,operation_mode=? WHERE id=?', (data.get('name', ''), data.get('address', ''), data.get('email', ''), data.get('phone', ''), data.get('hours', ''), data.get('services', ''), data.get('lat') or None, data.get('lng') or None, data.get('template_id') or None, data.get('operation_mode', 'Libre service'), data.get('id')))
         elif data.get('type') == 'shop_delete':
             con.execute('DELETE FROM shops WHERE id=?', (data.get('id'),))
         con.commit()
         con.close()
         return redirect(start_response, '/admin/shops')
     con = db()
-    shops = con.execute('SELECT * FROM shops ORDER BY id DESC').fetchall()
+    if user['role'] == 'admin':
+        shops = con.execute('SELECT * FROM shops ORDER BY id DESC').fetchall()
+    else:
+        shops = allowed_stock_shops(con, user)
     templates = con.execute('SELECT * FROM templates ORDER BY name').fetchall()
     services_dropdown = service_select_options(con)
     con.close()
     tpl_options = options(templates, empty=True)
     rows = ''.join([
-        f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['photo_path'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='shop_delete'><input type='hidden' name='id' value='{shop['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['operation_mode'] or 'Libre service')}</td><td>{escape(shop['photo_path'] or '')}</td><td>{f"<form class='inline' method='post'><input type='hidden' name='type' value='shop_delete'><input type='hidden' name='id' value='{shop['id']}'><button class='danger'>Supprimer</button></form>" if user['role'] == 'admin' else 'Lecture seule'}</td></tr>"
         for shop in shops
     ])
+    manager_notice = '' if user['role'] == 'admin' else "<div class='card'><p>Vue filtrée manager : boutiques de référence uniquement. La création, la modification et la suppression restent réservées à l’admin.</p></div>"
+    admin_style = '' if user['role'] == 'admin' else 'display:none'
     body = f"""
 {shop_admin_subtabs('shops')}
-<div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>template_id</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
+<div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>template_id</th><th>operation_mode</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
+{manager_notice}
 <div class='grid'>
-  <div class='card'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
+  <div class='card' style='{admin_style}'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>operation_mode</label><select name='operation_mode' required><option value='Libre service'>Libre service</option><option value='Réservation'>Réservation</option></select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
+  <div class='card' style='{admin_style}'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>operation_mode</label><select name='operation_mode' required><option value='Libre service'>Libre service</option><option value='Réservation'>Réservation</option></select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
 </div>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
