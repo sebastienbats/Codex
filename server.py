@@ -879,10 +879,23 @@ def admin_shops(environ, start_response, user):
     services_dropdown = service_select_options(con)
     con.close()
     tpl_options = options(templates, empty=True)
-    rows = ''.join([
-        f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['operation_mode'] or 'Libre service')}</td><td>{escape(shop['photo_path'] or '')}</td><td>{f"<form class='inline' method='post'><input type='hidden' name='type' value='shop_delete'><input type='hidden' name='id' value='{shop['id']}'><button class='danger'>Supprimer</button></form>" if user['role'] == 'admin' else 'Lecture seule'}</td></tr>"
-        for shop in shops
-    ])
+    rows = []
+    for shop in shops:
+        if user['role'] == 'admin':
+            action = (
+                f"<button type='button' class='inline js-shop-edit' data-id='{shop['id']}' data-name='{escape(shop['name'] or '')}' "
+                f"data-address='{escape(shop['address'] or '')}' data-email='{escape(shop['email'] or '')}' data-phone='{escape(shop['phone'] or '')}' "
+                f"data-hours='{escape(shop['hours'] or '')}' data-services='{escape(shop['services'] or '')}' "
+                f"data-operation-mode='{escape(shop['operation_mode'] or 'Libre service')}' data-lat='{escape(str(shop['lat'] or ''))}' "
+                f"data-lng='{escape(str(shop['lng'] or ''))}' data-template-id='{escape(str(shop['template_id'] or ''))}'>Modifier</button> "
+                f"<form class='inline' method='post'><input type='hidden' name='type' value='shop_delete'><input type='hidden' name='id' value='{shop['id']}'><button class='danger'>Supprimer</button></form>"
+            )
+        else:
+            action = 'Lecture seule'
+        rows.append(
+            f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['operation_mode'] or 'Libre service')}</td><td>{escape(shop['photo_path'] or '')}</td><td>{action}</td></tr>"
+        )
+    rows = ''.join(rows)
     manager_notice = '' if user['role'] == 'admin' else "<div class='card'><p>Vue filtrée manager : boutiques de référence uniquement. La création, la modification et la suppression restent réservées à l’admin.</p></div>"
     admin_style = '' if user['role'] == 'admin' else 'display:none'
     body = f"""
@@ -891,8 +904,27 @@ def admin_shops(environ, start_response, user):
 {manager_notice}
 <div class='grid'>
   <div class='card' style='{admin_style}'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>operation_mode</label><select name='operation_mode' required><option value='Libre service'>Libre service</option><option value='Réservation'>Réservation</option></select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
-  <div class='card' style='{admin_style}'><h3>Édition / modification boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>operation_mode</label><select name='operation_mode' required><option value='Libre service'>Libre service</option><option value='Réservation'>Réservation</option></select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
+  <div class='card' style='{admin_style}'><h3>Édition / modification boutique</h3><form id='shopUpdateForm' method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>operation_mode</label><select name='operation_mode' required><option value='Libre service'>Libre service</option><option value='Réservation'>Réservation</option></select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Modifier</button></form></div>
 </div>
+<script>
+const shopUpdateForm = document.getElementById('shopUpdateForm');
+document.querySelectorAll('.js-shop-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    shopUpdateForm.elements.id.value = button.dataset.id || '';
+    shopUpdateForm.elements.name.value = button.dataset.name || '';
+    shopUpdateForm.elements.address.value = button.dataset.address || '';
+    shopUpdateForm.elements.email.value = button.dataset.email || '';
+    shopUpdateForm.elements.phone.value = button.dataset.phone || '';
+    shopUpdateForm.elements.hours.value = button.dataset.hours || '';
+    shopUpdateForm.elements.services.value = button.dataset.services || '';
+    shopUpdateForm.elements.operation_mode.value = button.dataset.operationMode || 'Libre service';
+    shopUpdateForm.elements.lat.value = button.dataset.lat || '';
+    shopUpdateForm.elements.lng.value = button.dataset.lng || '';
+    shopUpdateForm.elements.template_id.value = button.dataset.templateId || '';
+    shopUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des boutiques', admin_shell('/admin/shops', 'Gestion des boutiques', body), user)]
@@ -1044,7 +1076,7 @@ def admin_dogs(environ, start_response, user):
         scope_note = 'Manager : accès limité aux chiens des clients rattachés aux boutiques de référence.'
     client_options = ''.join([f"<option value='{client['id']}'>{client['id']} - {escape(client['name'] or '')} ({escape(client['shop_name'] or 'Sans boutique')})</option>" for client in clients])
     rows = ''.join([
-        f"<tr><td>{dog['id']}</td><td>{escape(dog['name'] or '')}</td><td>{escape(dog['breed'] or '')}</td><td>{escape(str(dog['weight'] or ''))}</td><td>{dog['washes']}</td><td>{escape(str(dog['age'] or ''))}</td><td>{escape(dog['registered_at'] or '')}</td><td>{escape(dog['client_name'] or '')}<br><small>{escape(dog['client_email'] or '')}</small></td><td>{escape(str(dog['shop_id'] or ''))} - {escape(dog['shop_name'] or 'Sans boutique')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='dog_delete'><input type='hidden' name='id' value='{dog['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{dog['id']}</td><td>{escape(dog['name'] or '')}</td><td>{escape(dog['breed'] or '')}</td><td>{escape(str(dog['weight'] or ''))}</td><td>{dog['washes']}</td><td>{escape(str(dog['age'] or ''))}</td><td>{escape(dog['registered_at'] or '')}</td><td>{escape(dog['client_name'] or '')}<br><small>{escape(dog['client_email'] or '')}</small></td><td>{escape(str(dog['shop_id'] or ''))} - {escape(dog['shop_name'] or 'Sans boutique')}</td><td><button type='button' class='inline js-dog-edit' data-id='{dog['id']}' data-client-id='{dog['client_id']}' data-name='{escape(dog['name'] or '')}' data-breed='{escape(dog['breed'] or '')}' data-weight='{escape(str(dog['weight'] or ''))}' data-washes='{dog['washes']}' data-age='{escape(str(dog['age'] or ''))}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='dog_delete'><input type='hidden' name='id' value='{dog['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for dog in dogs
     ])
     con.close()
@@ -1053,8 +1085,23 @@ def admin_dogs(environ, start_response, user):
 <div class='card'><h3>Liste des chiens</h3><table class='table'><tr><th>id</th><th>name</th><th>breed</th><th>weight</th><th>washes</th><th>âge</th><th>inscription</th><th>client</th><th>boutique</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
   <div class='card'><h3>Création chien</h3><form method='post'><input type='hidden' name='type' value='dog_create'><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><label>age</label><input name='age' type='number' min='0'><input name='registered_at' type='hidden'><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification chien</h3><form method='post'><input type='hidden' name='type' value='dog_update'><label>id</label><input name='id' required><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><label>age</label><input name='age' type='number' min='0'><input name='registered_at' type='hidden'><button>Modifier</button></form></div>
+  <div class='card'><h3>Édition / modification chien</h3><form id='dogUpdateForm' method='post'><input type='hidden' name='type' value='dog_update'><label>id</label><input name='id' required><label>client_id</label><select name='client_id' required>{client_options}</select><label>name</label><input name='name' required><label>breed</label><input name='breed' required><label>weight</label><input name='weight' type='number' step='0.1'><label>washes</label><input name='washes' type='number' min='0' value='0'><label>age</label><input name='age' type='number' min='0'><input name='registered_at' type='hidden'><button>Modifier</button></form></div>
 </div>
+<script>
+const dogUpdateForm = document.getElementById('dogUpdateForm');
+document.querySelectorAll('.js-dog-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    dogUpdateForm.elements.id.value = button.dataset.id || '';
+    dogUpdateForm.elements.client_id.value = button.dataset.clientId || '';
+    dogUpdateForm.elements.name.value = button.dataset.name || '';
+    dogUpdateForm.elements.breed.value = button.dataset.breed || '';
+    dogUpdateForm.elements.weight.value = button.dataset.weight || '';
+    dogUpdateForm.elements.washes.value = button.dataset.washes || '0';
+    dogUpdateForm.elements.age.value = button.dataset.age || '';
+    dogUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des chiens', admin_shell('/admin/dogs', 'Gestion des chiens', body), user)]
