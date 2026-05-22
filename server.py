@@ -610,15 +610,26 @@ def admin_templates(environ, start_response, user):
     templates = con.execute('SELECT * FROM templates ORDER BY id DESC').fetchall()
     con.close()
     rows = ''.join([
-        f"<tr><td>{tpl['id']}</td><td>{escape(tpl['name'] or '')}</td><td>{escape(tpl['description'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='template_delete'><input type='hidden' name='id' value='{tpl['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{tpl['id']}</td><td>{escape(tpl['name'] or '')}</td><td>{escape(tpl['description'] or '')}</td><td><button type='button' class='inline js-template-edit' data-id='{tpl['id']}' data-name='{escape(tpl['name'] or '')}' data-description='{escape(tpl['description'] or '')}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='template_delete'><input type='hidden' name='id' value='{tpl['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for tpl in templates
     ])
     body = f"""
 <div class='card'><h3>Liste des templates</h3><table class='table'><tr><th>id</th><th>name</th><th>description</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
   <div class='card'><h3>Création template</h3><form method='post'><input type='hidden' name='type' value='template_create'><label>name</label><input name='name' required><label>description</label><textarea name='description' required></textarea><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification template</h3><form method='post'><input type='hidden' name='type' value='template_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>description</label><textarea name='description' required></textarea><button>Modifier</button></form></div>
+  <div class='card'><h3>Édition / modification template</h3><form id='templateUpdateForm' method='post'><input type='hidden' name='type' value='template_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>description</label><textarea name='description' required></textarea><button>Modifier</button></form></div>
 </div>
+<script>
+const templateUpdateForm = document.getElementById('templateUpdateForm');
+document.querySelectorAll('.js-template-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    templateUpdateForm.elements.id.value = button.dataset.id || '';
+    templateUpdateForm.elements.name.value = button.dataset.name || '';
+    templateUpdateForm.elements.description.value = button.dataset.description || '';
+    templateUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des templates', admin_shell('/admin/templates', 'Gestion des templates', body), user)]
@@ -696,7 +707,7 @@ def render_stock_management(environ, start_response, user):
         items = []
     shop_options = ''.join([f"<option value='{shop['id']}'>{shop['id']} - {escape(shop['name'] or '')}</option>" for shop in shops])
     rows = ''.join([
-        f"<tr><td>{item['id']}</td><td>{escape(item['shop_name'] or '')}</td><td>{escape(item['name'] or '')}</td><td>{escape(item['sku'] or '')}</td><td>{escape(str(item['quantity'] or 0))}</td><td>{escape(item['unit'] or '')}</td><td>{escape(str(item['min_quantity'] or 0))}</td><td>{escape(item['updated_at'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='stock_delete'><input type='hidden' name='id' value='{item['id']}'><input type='hidden' name='shop_id' value='{item['shop_id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{item['id']}</td><td>{escape(item['shop_name'] or '')}</td><td>{escape(item['name'] or '')}</td><td>{escape(item['sku'] or '')}</td><td>{escape(str(item['quantity'] or 0))}</td><td>{escape(item['unit'] or '')}</td><td>{escape(str(item['min_quantity'] or 0))}</td><td>{escape(item['updated_at'] or '')}</td><td><button type='button' class='inline js-stock-edit' data-id='{item['id']}' data-shop-id='{item['shop_id']}' data-name='{escape(item['name'] or '')}' data-sku='{escape(item['sku'] or '')}' data-quantity='{escape(str(item['quantity'] or 0))}' data-unit='{escape(item['unit'] or '')}' data-min-quantity='{escape(str(item['min_quantity'] or 0))}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='stock_delete'><input type='hidden' name='id' value='{item['id']}'><input type='hidden' name='shop_id' value='{item['shop_id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for item in items
     ])
     con.close()
@@ -708,7 +719,7 @@ def render_stock_management(environ, start_response, user):
 <div class='card'><h3>Liste du stock par boutique</h3><table class='table'><tr><th>id</th><th>boutique</th><th>name</th><th>sku</th><th>quantity</th><th>unit</th><th>min_quantity</th><th>updated_at</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
   <div class='card'><h3>Création stock</h3><form id='stockCreateForm' method='post'><input type='hidden' name='type' value='stock_create'><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input id='createStockName' name='name' required><label>sku</label><input id='createStockSku' name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01' value='0'><label>unit</label><input id='createStockUnit' name='unit' placeholder='pièce, litre, kg...'><label>min_quantity</label><input id='createStockMinQuantity' name='min_quantity' type='number' step='0.01' value='0'><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification stock</h3><form method='post'><input type='hidden' name='type' value='stock_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input name='name' required><label>sku</label><input name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01'><label>unit</label><input name='unit'><label>min_quantity</label><input name='min_quantity' type='number' step='0.01'><button>Modifier</button></form></div>
+  <div class='card'><h3>Édition / modification stock</h3><form id='stockUpdateForm' method='post'><input type='hidden' name='type' value='stock_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>name</label><input name='name' required><label>sku</label><input name='sku'><label>quantity</label><input name='quantity' type='number' step='0.01'><label>unit</label><input name='unit'><label>min_quantity</label><input name='min_quantity' type='number' step='0.01'><button>Modifier</button></form></div>
 </div>
 <script>
 const barcodeInput = document.getElementById('barcodeInput');
@@ -736,6 +747,19 @@ document.getElementById('barcodeStockForm')?.addEventListener('submit', () => {{
   }}
 }});
 barcodeInput?.focus();
+const stockUpdateForm = document.getElementById('stockUpdateForm');
+document.querySelectorAll('.js-stock-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    stockUpdateForm.elements.id.value = button.dataset.id || '';
+    stockUpdateForm.elements.shop_id.value = button.dataset.shopId || '';
+    stockUpdateForm.elements.name.value = button.dataset.name || '';
+    stockUpdateForm.elements.sku.value = button.dataset.sku || '';
+    stockUpdateForm.elements.quantity.value = button.dataset.quantity || '';
+    stockUpdateForm.elements.unit.value = button.dataset.unit || '';
+    stockUpdateForm.elements.min_quantity.value = button.dataset.minQuantity || '';
+    stockUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
 </script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
@@ -792,7 +816,7 @@ def admin_services(environ, start_response, user):
     else:
         items = []
     shop_options = ''.join([f"<option value='{shop['id']}'>{shop['id']} - {escape(shop['name'] or '')}</option>" for shop in shops])
-    rows = ''.join([f"<tr><td>{item['id']}</td><td>{escape(item['shop_name'] or '')}</td><td>{escape(item['category'] or '')}</td><td>{escape(item['name'] or '')}</td><td>{escape(item['description'] or '')}</td><td>{escape(str(item['price'] or 0))}</td><td>{'Oui' if item['active'] else 'Non'}</td><td>{escape(item['updated_at'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='service_delete'><input type='hidden' name='id' value='{item['id']}'><input type='hidden' name='shop_id' value='{item['shop_id']}'><button class='danger'>Supprimer</button></form></td></tr>" for item in items])
+    rows = ''.join([f"<tr><td>{item['id']}</td><td>{escape(item['shop_name'] or '')}</td><td>{escape(item['category'] or '')}</td><td>{escape(item['name'] or '')}</td><td>{escape(item['description'] or '')}</td><td>{escape(str(item['price'] or 0))}</td><td>{'Oui' if item['active'] else 'Non'}</td><td>{escape(item['updated_at'] or '')}</td><td><button type='button' class='inline js-service-edit' data-id='{item['id']}' data-shop-id='{item['shop_id']}' data-category='{escape(item['category'] or '')}' data-name='{escape(item['name'] or '')}' data-description='{escape(item['description'] or '')}' data-price='{escape(str(item['price'] or 0))}' data-active='{1 if item['active'] else 0}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='service_delete'><input type='hidden' name='id' value='{item['id']}'><input type='hidden' name='shop_id' value='{item['shop_id']}'><button class='danger'>Supprimer</button></form></td></tr>" for item in items])
     con.close()
     scope = 'Admin : services de toutes les boutiques.' if user['role'] == 'admin' else 'Manager : services limités aux boutiques de référence.'
     body = f"""
@@ -800,8 +824,23 @@ def admin_services(environ, start_response, user):
 <div class='card'><h3>Liste des services</h3><table class='table'><tr><th>id</th><th>boutique</th><th>category</th><th>name</th><th>description</th><th>price</th><th>active</th><th>updated_at</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
   <div class='card'><h3>Création service</h3><form method='post'><input type='hidden' name='type' value='service_create'><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>category</label><select name='category' required>{service_category_options()}</select><label>name</label><input name='name' required><label>description</label><textarea name='description'></textarea><label>price</label><input name='price' type='number' step='0.01' value='0'><label>active</label><select name='active'><option value='1'>Oui</option><option value='0'>Non</option></select><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification service</h3><form method='post'><input type='hidden' name='type' value='service_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>category</label><select name='category' required>{service_category_options()}</select><label>name</label><input name='name' required><label>description</label><textarea name='description'></textarea><label>price</label><input name='price' type='number' step='0.01'><label>active</label><select name='active'><option value='1'>Oui</option><option value='0'>Non</option></select><button>Modifier</button></form></div>
+  <div class='card'><h3>Édition / modification service</h3><form id='serviceUpdateForm' method='post'><input type='hidden' name='type' value='service_update'><label>id</label><input name='id' required><label>shop_id</label><select name='shop_id' required>{shop_options}</select><label>category</label><select name='category' required>{service_category_options()}</select><label>name</label><input name='name' required><label>description</label><textarea name='description'></textarea><label>price</label><input name='price' type='number' step='0.01'><label>active</label><select name='active'><option value='1'>Oui</option><option value='0'>Non</option></select><button>Modifier</button></form></div>
 </div>
+<script>
+const serviceUpdateForm = document.getElementById('serviceUpdateForm');
+document.querySelectorAll('.js-service-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    serviceUpdateForm.elements.id.value = button.dataset.id || '';
+    serviceUpdateForm.elements.shop_id.value = button.dataset.shopId || '';
+    serviceUpdateForm.elements.category.value = button.dataset.category || '';
+    serviceUpdateForm.elements.name.value = button.dataset.name || '';
+    serviceUpdateForm.elements.description.value = button.dataset.description || '';
+    serviceUpdateForm.elements.price.value = button.dataset.price || '';
+    serviceUpdateForm.elements.active.value = button.dataset.active || '1';
+    serviceUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des services', admin_shell('/admin/services', 'Gestion des services des boutiques', body), user)]
@@ -909,7 +948,7 @@ def admin_managers(environ, start_response, user):
     managers = con.execute("SELECT * FROM users WHERE role='manager' ORDER BY id DESC").fetchall()
     shops = con.execute('SELECT * FROM shops ORDER BY name').fetchall()
     rows = ''.join([
-        f"<tr><td>{manager['id']}</td><td>{escape(manager['name'] or '')}</td><td>{escape(manager['email'] or '')}</td><td>{escape(manager_shop_labels(con, manager['id']))}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='manager_delete'><input type='hidden' name='id' value='{manager['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr><td>{manager['id']}</td><td>{escape(manager['name'] or '')}</td><td>{escape(manager['email'] or '')}</td><td>{escape(manager_shop_labels(con, manager['id']))}</td><td><button type='button' class='inline js-manager-edit' data-id='{manager['id']}' data-name='{escape(manager['name'] or '')}' data-email='{escape(manager['email'] or '')}' data-shop-ids='{','.join(manager_reference_shop_ids(con, manager['id']))}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='manager_delete'><input type='hidden' name='id' value='{manager['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for manager in managers
     ])
     shop_options = ''.join([f"<option value='{shop['id']}'>{shop['id']} - {escape(shop['name'] or '')}</option>" for shop in shops])
@@ -919,8 +958,23 @@ def admin_managers(environ, start_response, user):
 <div class='card'><h3>Liste des managers</h3><table class='table'><tr><th>id</th><th>name</th><th>email</th><th>boutiques de référence</th><th>action</th></tr>{rows}</table></div>
 <div class='grid'>
   <div class='card'><h3>Création manager</h3><form method='post'><input type='hidden' name='type' value='manager_create'><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' required><label>shop_ids</label><select name='shop_ids' multiple size='6' required>{shop_options}</select><small>Maintenir Ctrl/Cmd pour sélectionner plusieurs boutiques.</small><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification manager</h3><form method='post'><input type='hidden' name='type' value='manager_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_ids</label><select name='shop_ids' multiple size='6' required>{shop_options}</select><small>La sélection remplace les boutiques de référence actuelles.</small><button>Modifier</button></form></div>
+  <div class='card'><h3>Édition / modification manager</h3><form id='managerUpdateForm' method='post'><input type='hidden' name='type' value='manager_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>email</label><input name='email' type='email' required><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_ids</label><select name='shop_ids' multiple size='6' required>{shop_options}</select><small>La sélection remplace les boutiques de référence actuelles.</small><button>Modifier</button></form></div>
 </div>
+<script>
+const managerUpdateForm = document.getElementById('managerUpdateForm');
+document.querySelectorAll('.js-manager-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    managerUpdateForm.elements.id.value = button.dataset.id || '';
+    managerUpdateForm.elements.name.value = button.dataset.name || '';
+    managerUpdateForm.elements.email.value = button.dataset.email || '';
+    const selected = (button.dataset.shopIds || '').split(',').filter(Boolean);
+    Array.from(managerUpdateForm.elements.shop_ids.options).forEach(option => {{
+      option.selected = selected.includes(option.value);
+    }});
+    managerUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
+</script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion des managers', admin_shell('/admin/managers', 'Gestion des managers', body), user)]
@@ -1047,7 +1101,7 @@ def admin_clients(environ, start_response, user):
     con.close()
     shop_options = options(shops, empty=True)
     rows = ''.join([
-        f"<tr data-search='{escape((client['id'].__str__() + ' ' + (client['name'] or '') + ' ' + (client['first_name'] or '') + ' ' + (client['email'] or '') + ' ' + (client['phone'] or '') + ' ' + (client['vcard'] or '')).lower())}'><td>{client['id']}</td><td>{escape(client['name'] or '')}</td><td>{escape(client['first_name'] or '')}</td><td>{escape(client['email'] or '')}</td><td>{escape(client['vcard'] or '')}</td><td>{escape(client['birth_date'] or '')}</td><td>{escape(client['registered_at'] or '')}</td><td><form class='inline' method='post'><input type='hidden' name='type' value='client_delete'><input type='hidden' name='id' value='{client['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
+        f"<tr data-search='{escape((client['id'].__str__() + ' ' + (client['name'] or '') + ' ' + (client['first_name'] or '') + ' ' + (client['email'] or '') + ' ' + (client['phone'] or '') + ' ' + (client['vcard'] or '')).lower())}'><td>{client['id']}</td><td>{escape(client['name'] or '')}</td><td>{escape(client['first_name'] or '')}</td><td>{escape(client['email'] or '')}</td><td>{escape(client['vcard'] or '')}</td><td>{escape(client['birth_date'] or '')}</td><td>{escape(client['registered_at'] or '')}</td><td><button type='button' class='inline js-client-edit' data-id='{client['id']}' data-name='{escape(client['name'] or '')}' data-first-name='{escape(client['first_name'] or '')}' data-email='{escape(client['email'] or '')}' data-phone='{escape(client['phone'] or '')}' data-vcard='{escape(client['vcard'] or '')}' data-birth-date='{escape(client['birth_date'] or '')}' data-registered-at='{escape(client['registered_at'] or '')}' data-shop-id='{escape(str(client['shop_id'] or ''))}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='client_delete'><input type='hidden' name='id' value='{client['id']}'><button class='danger'>Supprimer</button></form></td></tr>"
         for client in clients
     ])
     cards = ''.join([
@@ -1067,7 +1121,7 @@ def admin_clients(environ, start_response, user):
 <div id='clientsCardView' class='card hidden'><h3>Liste des clients - vignettes</h3><div class='tile-grid'>{cards}</div></div>
 <div class='grid'>
   <div class='card'><h3>Création client</h3><form id='clientCreateForm' method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_create'><label>import_vcard_3</label><input id='vcardImport' type='file' accept='.vcf,text/vcard,text/x-vcard'><small>Importer un fichier vCard version 3.0 pour pré-remplir Nom, Prénom, @Mél, Téléphone, vcard et Date de naissance.</small><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' required><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Créer</button></form></div>
-  <div class='card'><h3>Édition / modification client</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Modifier</button></form></div>
+  <div class='card'><h3>Édition / modification client</h3><form id='clientUpdateForm' method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='client_update'><label>id</label><input name='id' required><label>name</label><input name='name' required><label>first_name</label><input name='first_name'><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone'><label>vcard</label><input name='vcard'><label>birth_date</label><input name='birth_date' type='date'><label>registered_at</label><input name='registered_at' type='date'><label>avatar</label><input name='avatar' type='file' accept='image/*'><label>password</label><input name='password' type='password' placeholder='laisser vide pour conserver'><label>shop_id</label><select name='shop_id'>{shop_options}</select><button>Modifier</button></form></div>
 </div>
 <script>
 const tableView = document.getElementById('clientsTableView');
@@ -1115,6 +1169,23 @@ if (vcardImport) {{
 }}
 document.getElementById('tableViewBtn').onclick = () => {{ tableView.classList.remove('hidden'); cardView.classList.add('hidden'); }};
 document.getElementById('cardViewBtn').onclick = () => {{ cardView.classList.remove('hidden'); tableView.classList.add('hidden'); }};
+const clientUpdateForm = document.getElementById('clientUpdateForm');
+document.querySelectorAll('.js-client-edit').forEach(button => {{
+  button.addEventListener('click', () => {{
+    clientUpdateForm.elements.id.value = button.dataset.id || '';
+    clientUpdateForm.elements.name.value = button.dataset.name || '';
+    clientUpdateForm.elements.first_name.value = button.dataset.firstName || '';
+    clientUpdateForm.elements.email.value = button.dataset.email || '';
+    clientUpdateForm.elements.phone.value = button.dataset.phone || '';
+    clientUpdateForm.elements.vcard.value = button.dataset.vcard || '';
+    clientUpdateForm.elements.birth_date.value = button.dataset.birthDate || '';
+    clientUpdateForm.elements.registered_at.value = button.dataset.registeredAt || '';
+    clientUpdateForm.elements.shop_id.value = button.dataset.shopId || '';
+    tableView.classList.remove('hidden');
+    cardView.classList.add('hidden');
+    clientUpdateForm.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+  }});
+}});
 function visibleRows() {{ return Array.from(document.querySelectorAll('#clientsTable tbody tr')).filter(row => row.style.display !== 'none'); }}
 function filterClients() {{
   const term = search.value.trim().toLowerCase();
