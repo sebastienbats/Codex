@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+washdog.db
+washdog_backup_*.db
+washdog_before_import_*.db
+uploads/
+imports/
+node_modules/
