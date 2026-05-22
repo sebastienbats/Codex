@@ -893,14 +893,14 @@ def admin_shops(environ, start_response, user):
         else:
             action = 'Lecture seule'
         rows.append(
-            f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(str(shop['template_id'] or ''))}</td><td>{escape(shop['operation_mode'] or 'Libre service')}</td><td>{escape(shop['photo_path'] or '')}</td><td>{action}</td></tr>"
+            f"<tr><td>{shop['id']}</td><td>{escape(shop['name'] or '')}</td><td>{escape(shop['address'] or '')}</td><td>{escape(shop['email'] or '')}</td><td>{escape(shop['operation_mode'] or 'Libre service')}</td><td>{action}</td></tr>"
         )
     rows = ''.join(rows)
     manager_notice = '' if user['role'] == 'admin' else "<div class='card'><p>Vue filtrée manager : boutiques de référence uniquement. La création, la modification et la suppression restent réservées à l’admin.</p></div>"
     admin_style = '' if user['role'] == 'admin' else 'display:none'
     body = f"""
 {shop_admin_subtabs('shops')}
-<div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>template_id</th><th>operation_mode</th><th>photo_path</th><th>action</th></tr>{rows}</table></div>
+<div class='card'><h3>Liste des boutiques</h3><table class='table'><tr><th>id</th><th>name</th><th>address</th><th>email</th><th>operation_mode</th><th>action</th></tr>{rows}</table></div>
 {manager_notice}
 <div class='grid'>
   <div class='card' style='{admin_style}'><h3>Création boutique</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='shop_create'><label>name</label><input name='name' required><label>address</label><input name='address' required><label>email</label><input name='email' type='email' required><label>phone</label><input name='phone' required><label>hours</label><input name='hours' required><label>services</label><select name='services' required>{services_dropdown}</select><label>operation_mode</label><select name='operation_mode' required><option value='Libre service'>Libre service</option><option value='Réservation'>Réservation</option></select><label>lat</label><input name='lat' type='number' step='any'><label>lng</label><input name='lng' type='number' step='any'><label>template_id</label><select name='template_id'>{tpl_options}</select><label>shop_photo</label><input type='file' name='shop_photo' accept='image/*'><button>Créer</button></form></div>
