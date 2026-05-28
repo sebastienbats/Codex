@@ -13,7 +13,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(IMPORT_DIR, exist_ok=True)
 
 CSS = '''
-body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}.table tbody tr:nth-child(even){background:#f8fbff}.table th{background:#eaf1ff;cursor:pointer}.toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.toolbar input{max-width:320px;margin:0}.toolbar button{width:auto}.hidden{display:none}.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.tile{background:#fff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#e9f0ff;display:block;margin-bottom:.7rem}.stat{font-size:2rem;font-weight:800;color:#0f6fff}.chart-card{min-height:260px}.bar-row{display:grid;grid-template-columns:minmax(120px,1fr) 3fr 56px;gap:.5rem;align-items:center;margin:.45rem 0}.bar-track{background:#e9f0ff;border-radius:999px;overflow:hidden;height:1rem}.bar-fill{background:#0f6fff;height:100%}.pie{width:180px;height:180px;border-radius:50%;margin:1rem auto;background:#e9f0ff}.legend{display:flex;flex-wrap:wrap;gap:.5rem}.legend span{display:inline-flex;align-items:center;gap:.25rem}.swatch{width:.8rem;height:.8rem;border-radius:3px;display:inline-block}.chart-pie{display:none}.dashboard.pie-mode .chart-bar{display:none}.dashboard.pie-mode .chart-pie{display:block}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.kpi{background:#f8fbff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}
+body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}.table tbody tr:nth-child(even){background:#f8fbff}.table th{background:#eaf1ff;cursor:pointer}.toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.toolbar input{max-width:320px;margin:0}.toolbar button{width:auto}.hidden{display:none}.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.tile{background:#fff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#e9f0ff;display:block;margin-bottom:.7rem}.stat{font-size:2rem;font-weight:800;color:#0f6fff}.chart-card{min-height:260px}.bar-row{display:grid;grid-template-columns:minmax(120px,1fr) 3fr 56px;gap:.5rem;align-items:center;margin:.45rem 0}.bar-track{background:#e9f0ff;border-radius:999px;overflow:hidden;height:1rem}.bar-fill{background:#0f6fff;height:100%}.pie{width:180px;height:180px;border-radius:50%;margin:1rem auto;background:#e9f0ff}.legend{display:flex;flex-wrap:wrap;gap:.5rem}.legend span{display:inline-flex;align-items:center;gap:.25rem}.swatch{width:.8rem;height:.8rem;border-radius:3px;display:inline-block}.chart-pie,.chart-line{display:none}.dashboard.pie-mode .chart-bar,.dashboard.pie-mode .chart-line{display:none}.dashboard.pie-mode .chart-pie{display:block}.dashboard.line-mode .chart-bar,.dashboard.line-mode .chart-pie{display:none}.dashboard.line-mode .chart-line{display:block}.line-chart{width:100%;height:180px}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.kpi{background:#f8fbff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}
 '''
 
 ADMIN_TABS = [
@@ -379,6 +379,10 @@ def sorted_counts(counter):
     return sorted(counter.items(), key=lambda item: (-item[1], str(item[0])))
 
 
+def chronological_counts(counter):
+    return sorted(counter.items(), key=lambda item: str(item[0]))
+
+
 def average_rates(dates):
     parsed_dates = [parse_iso_date(item) for item in dates]
     parsed_dates = [item for item in parsed_dates if item]
@@ -393,8 +397,8 @@ def average_rates(dates):
     return f'{total / days:.2f} / jour · {total / weeks:.2f} / semaine · {total / months:.2f} / mois · {total / years:.2f} / année'
 
 
-def chart_html(title, counts, empty_label='Aucune donnée'):
-    items = sorted_counts(counts)
+def chart_html(title, counts, empty_label='Aucune donnée', chronological=False):
+    items = chronological_counts(counts) if chronological else sorted_counts(counts)
     if not items:
         return f"<div class='card chart-card'><h4>{escape(title)}</h4><p class='muted'>{empty_label}</p></div>"
     max_value = max(value for _, value in items) or 1
@@ -402,7 +406,10 @@ def chart_html(title, counts, empty_label='Aucune donnée'):
     legends = []
     start = 0
     segments = []
+    line_points = []
+    line_labels = []
     total = sum(value for _, value in items) or 1
+    span = max(1, len(items) - 1)
     for index, (label, value) in enumerate(items):
         color = DASHBOARD_COLORS[index % len(DASHBOARD_COLORS)]
         width = max(3, round((value / max_value) * 100, 2))
@@ -413,13 +420,24 @@ def chart_html(title, counts, empty_label='Aucune donnée'):
         end = start + (value / total) * 100
         segments.append(f'{color} {start:.2f}% {end:.2f}%')
         legends.append(f"<span><i class='swatch' style='background:{color}'></i>{safe_label} ({value})</span>")
+        x = 40 + (240 * index / span)
+        y = 120 - ((value / max_value) * 90)
+        line_points.append(f'{x:.1f},{y:.1f}')
+        line_labels.append(f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4' fill='#0f6fff'><title>{safe_label}: {value}</title></circle><text x='{x:.1f}' y='142' text-anchor='middle' font-size='8'>{safe_label}</text>")
         start = end
     pie_style = '; '.join(segments)
+    line_svg = f"""<svg class='line-chart' viewBox='0 0 320 150' role='img' aria-label='{escape(title)} en courbe'>
+      <line x1='35' y1='120' x2='295' y2='120' stroke='#cfd8e7'/>
+      <line x1='35' y1='25' x2='35' y2='120' stroke='#cfd8e7'/>
+      <polyline points='{' '.join(line_points)}' fill='none' stroke='#0f6fff' stroke-width='3'/>
+      {''.join(line_labels)}
+    </svg>"""
     return f"""
 <div class='card chart-card'>
   <h4>{escape(title)}</h4>
   <div class='chart-bar'>{''.join(bars)}</div>
   <div class='chart-pie'><div class='pie' style='background:conic-gradient({pie_style})'></div><div class='legend'>{''.join(legends)}</div></div>
+  <div class='chart-line'>{line_svg}</div>
 </div>
 """
 
@@ -552,9 +570,9 @@ def render_shop_dashboard(bucket):
   {chart_html('Clients par tranche d’âge', bucket['client_ages'])}
   {chart_html('Chiens par race', bucket['dog_breeds'])}
   {chart_html('Chiens par âge', bucket['dog_ages'])}
-  {chart_html('Managers inscrits par date', bucket['manager_dates'])}
-  {chart_html('Clients inscrits par date', bucket['client_dates'])}
-  {chart_html('Chiens par date d’inscription', bucket['dog_dates'])}
+  {chart_html('Managers inscrits par date', bucket['manager_dates'], chronological=True)}
+  {chart_html('Clients inscrits par date', bucket['client_dates'], chronological=True)}
+  {chart_html('Chiens par date d’inscription', bucket['dog_dates'], chronological=True)}
   {chart_html('Services par type', bucket['service_types'])}
   {averages}
 </div>
@@ -577,14 +595,16 @@ def admin_dashboard(environ, start_response, user):
     <strong>{scope}</strong>
     <button type='button' id='barChartBtn'>Diagrammes à barres</button>
     <button type='button' id='pieChartBtn'>Graphiques camembert</button>
+    <button type='button' id='lineChartBtn'>Graphiques en courbe</button>
   </div>
   {render_dashboard_overview(stats) if shops else ''}
   {''.join(render_shop_dashboard(stats[str(shop['id'])]) for shop in shops) if shops else "<div class='card'>Aucune boutique dans votre périmètre.</div>"}
 </div>
 <script>
 const dashboard = document.getElementById('dashboard');
-document.getElementById('barChartBtn').onclick = () => dashboard.classList.remove('pie-mode');
-document.getElementById('pieChartBtn').onclick = () => dashboard.classList.add('pie-mode');
+document.getElementById('barChartBtn').onclick = () => dashboard.classList.remove('pie-mode', 'line-mode');
+document.getElementById('pieChartBtn').onclick = () => {{ dashboard.classList.remove('line-mode'); dashboard.classList.add('pie-mode'); }};
+document.getElementById('lineChartBtn').onclick = () => {{ dashboard.classList.remove('pie-mode'); dashboard.classList.add('line-mode'); }};
 </script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])

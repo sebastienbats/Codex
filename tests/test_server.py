@@ -107,6 +107,8 @@ class WashDogServerTests(unittest.TestCase):
         self.assertIn('Labrador', html)
         self.assertIn('Prestations de base', html)
         self.assertIn('Graphiques camembert', html)
+        self.assertIn('Graphiques en courbe', html)
+        self.assertIn('line-mode', html)
         self.assertIn('Managers par boutique', html)
 
     def test_dashboard_manager_is_limited_to_reference_shops(self):
