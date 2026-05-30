@@ -225,7 +225,7 @@ def html_page(title, body, user=None):
     if user and user['role'] == 'manager':
         nav += '<a href="/admin/dashboard">Tableau de bord</a><a href="/admin/dogs">Manager</a><a href="/admin/shops?tab=stock">Stock</a><a href="/admin/services">Services</a>'
     if user and user['role'] == 'client':
-        nav += '<a href="/client">Client</a><a href="/dogs">Chiens</a>'
+        nav += '<a href="/client">Client</a><a href="/dogs">Chiens</a><a href="/admin/dogs">Gestion chiens</a>'
     nav += '<a href="/logout">Déconnexion</a>' if user else '<a href="/login">Connexion</a><a href="/register">Inscription</a>'
     nav += '</div>'
     return f"<!doctype html><html><head><meta charset='utf-8'><title>{escape(title)}</title><style>{CSS}</style></head><body><header><h1>WashDog Pro</h1>{nav}</header><main>{body}</main></body></html>".encode()
@@ -241,6 +241,12 @@ def redirect(start_response, to, cookie=None):
 
 def require_admin(user, start_response):
     if not user or user['role'] != 'admin':
+        return redirect(start_response, '/login')
+    return None
+
+
+def require_dog_admin_access(user, start_response):
+    if not user or user['role'] not in ('admin', 'manager', 'client'):
         return redirect(start_response, '/login')
     return None
 
@@ -1041,12 +1047,14 @@ def manager_reference_shop_ids(con, manager_id):
 def dog_allowed(con, user, dog_id):
     if user['role'] == 'admin':
         return True
-    row = con.execute('SELECT u.shop_id FROM dogs d JOIN users u ON u.id=d.client_id WHERE d.id=?', (dog_id,)).fetchone()
+    row = con.execute('SELECT d.client_id,u.shop_id FROM dogs d JOIN users u ON u.id=d.client_id WHERE d.id=?', (dog_id,)).fetchone()
+    if user['role'] == 'client':
+        return bool(row and str(row['client_id']) == str(user['id']))
     return bool(row and str(row['shop_id']) in manager_reference_shop_ids(con, user['id']))
 
 
 def admin_dogs(environ, start_response, user):
-    blocked = require_admin_or_manager(user, start_response)
+    blocked = require_dog_admin_access(user, start_response)
     if blocked:
         return blocked
     con = db()
@@ -1056,14 +1064,14 @@ def admin_dogs(environ, start_response, user):
         action = data.get('type')
         if action == 'dog_create':
             client = con.execute('SELECT id,shop_id FROM users WHERE id=? AND role="client"', (data.get('client_id'),)).fetchone()
-            if client and (user['role'] == 'admin' or str(client['shop_id']) in manager_shop_ids):
+            if client and (user['role'] == 'admin' or str(client['shop_id']) in manager_shop_ids or (user['role'] == 'client' and str(client['id']) == str(user['id']))):
                 con.execute(
                     'INSERT INTO dogs(client_id,name,breed,weight,washes,age,registered_at) VALUES(?,?,?,?,?,?,COALESCE(NULLIF(?,""),datetime("now")))',
                     (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0, data.get('age') or None, data.get('registered_at', '')),
                 )
         elif action == 'dog_update' and dog_allowed(con, user, data.get('id')):
             new_client = con.execute('SELECT id,shop_id FROM users WHERE id=? AND role="client"', (data.get('client_id'),)).fetchone()
-            if new_client and (user['role'] == 'admin' or str(new_client['shop_id']) in manager_shop_ids):
+            if new_client and (user['role'] == 'admin' or str(new_client['shop_id']) in manager_shop_ids or (user['role'] == 'client' and str(new_client['id']) == str(user['id']))):
                 con.execute(
                     'UPDATE dogs SET client_id=?,name=?,breed=?,weight=?,washes=?,age=?,registered_at=COALESCE(NULLIF(?,""),registered_at) WHERE id=?',
                     (data.get('client_id'), data.get('name', ''), data.get('breed', ''), data.get('weight') or None, data.get('washes') or 0, data.get('age') or None, data.get('registered_at', ''), data.get('id')),
@@ -1081,6 +1089,15 @@ def admin_dogs(environ, start_response, user):
         """).fetchall()
         clients = con.execute("SELECT u.*,s.name AS shop_name FROM users u LEFT JOIN shops s ON s.id=u.shop_id WHERE u.role='client' ORDER BY u.name").fetchall()
         scope_note = 'Admin : accès à tous les chiens de toutes les boutiques.'
+    elif user['role'] == 'client':
+        dogs = con.execute("""
+            SELECT d.*,u.name AS client_name,u.email AS client_email,s.name AS shop_name,s.id AS shop_id
+            FROM dogs d JOIN users u ON u.id=d.client_id LEFT JOIN shops s ON s.id=u.shop_id
+            WHERE d.client_id=?
+            ORDER BY d.id DESC
+        """, (user['id'],)).fetchall()
+        clients = con.execute("SELECT u.*,s.name AS shop_name FROM users u LEFT JOIN shops s ON s.id=u.shop_id WHERE u.id=? AND u.role='client'", (user['id'],)).fetchall()
+        scope_note = 'Client : accès limité aux chiens dont vous êtes propriétaire.'
     else:
         if manager_shop_ids:
             placeholders = ','.join(['?'] * len(manager_shop_ids))
@@ -1128,7 +1145,8 @@ document.querySelectorAll('.js-dog-edit').forEach(button => {{
 </script>
 """
     start_response('200 OK', [('Content-Type', 'text/html')])
-    return [html_page('Gestion des chiens', admin_shell('/admin/dogs', 'Gestion des chiens', body), user)]
+    content = admin_shell('/admin/dogs', 'Gestion des chiens', body) if user['role'] in ('admin', 'manager') else body
+    return [html_page('Gestion des chiens', content, user)]
 
 
 def admin_clients(environ, start_response, user):

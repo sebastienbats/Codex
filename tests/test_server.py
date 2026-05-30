@@ -167,6 +167,34 @@ class WashDogServerTests(unittest.TestCase):
         self.assertNotIn('Rex', html)
         self.assertNotIn('Client Centre', html)
 
+    def test_admin_dogs_client_sees_only_owned_dogs(self):
+        con = server.db()
+        con.execute("INSERT INTO shops(id,name,address) VALUES(1,'Centre','Rue A')")
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,shop_id,registered_at) VALUES(20,'Client Owner','owner@example.test',?,'client',1,'2026-01-02')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,shop_id,registered_at) VALUES(21,'Client Other','other@example.test',?,'client',1,'2026-01-02')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute("INSERT INTO dogs(client_id,name,breed,age,registered_at) VALUES(20,'Nina','Caniche',6,'2026-01-03')")
+        con.execute("INSERT INTO dogs(client_id,name,breed,age,registered_at) VALUES(21,'Rex','Labrador',4,'2026-01-03')")
+        con.commit()
+        client = con.execute("SELECT * FROM users WHERE id=20").fetchone()
+        con.close()
+
+        captured, start_response = self.start_response()
+        response = server.admin_dogs(self.get_environ('/admin/dogs'), start_response, client)
+        html = b''.join(response).decode()
+
+        self.assertEqual(captured['status'], '200 OK')
+        self.assertIn('Client : accès limité', html)
+        self.assertIn('Nina', html)
+        self.assertIn('Client Owner', html)
+        self.assertNotIn('Rex', html)
+        self.assertNotIn('Client Other', html)
+
     def test_login_sets_signed_http_only_same_site_cookie(self):
         captured, start_response = self.start_response()
         response = server.login(
