@@ -133,6 +133,40 @@ class WashDogServerTests(unittest.TestCase):
         self.assertIn('Sud', html)
         self.assertIn('Manager : vue filtrée', html)
 
+    def test_admin_dogs_manager_sees_only_reference_shop_dogs(self):
+        con = server.db()
+        con.execute("INSERT INTO shops(id,name,address) VALUES(1,'Centre','Rue A')")
+        con.execute("INSERT INTO shops(id,name,address) VALUES(2,'Sud','Rue B')")
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,registered_at) VALUES(10,'Manager','m@example.test',?,'manager','2026-01-01')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute('INSERT INTO manager_shops(manager_id,shop_id) VALUES(10,2)')
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,shop_id,registered_at) VALUES(20,'Client Centre','c1@example.test',?,'client',1,'2026-01-02')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute(
+            "INSERT INTO users(id,name,email,password,role,shop_id,registered_at) VALUES(21,'Client Sud','c2@example.test',?,'client',2,'2026-01-02')",
+            (server.hash_pw('pw'),),
+        )
+        con.execute("INSERT INTO dogs(client_id,name,breed,age,registered_at) VALUES(20,'Rex','Labrador',4,'2026-01-03')")
+        con.execute("INSERT INTO dogs(client_id,name,breed,age,registered_at) VALUES(21,'Nina','Caniche',6,'2026-01-03')")
+        con.commit()
+        manager = con.execute("SELECT * FROM users WHERE id=10").fetchone()
+        con.close()
+
+        captured, start_response = self.start_response()
+        response = server.admin_dogs(self.get_environ('/admin/dogs'), start_response, manager)
+        html = b''.join(response).decode()
+
+        self.assertEqual(captured['status'], '200 OK')
+        self.assertIn('Manager : accès limité', html)
+        self.assertIn('Nina', html)
+        self.assertIn('Client Sud', html)
+        self.assertNotIn('Rex', html)
+        self.assertNotIn('Client Centre', html)
+
     def test_login_sets_signed_http_only_same_site_cookie(self):
         captured, start_response = self.start_response()
         response = server.login(

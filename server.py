@@ -1091,10 +1091,13 @@ def admin_dogs(environ, start_response, user):
                 ORDER BY d.id DESC
             """, manager_shop_ids).fetchall()
             clients = con.execute(f"SELECT u.*,s.name AS shop_name FROM users u LEFT JOIN shops s ON s.id=u.shop_id WHERE u.role='client' AND u.shop_id IN ({placeholders}) ORDER BY u.name", manager_shop_ids).fetchall()
+            reference_shops = con.execute(f"SELECT name FROM shops WHERE id IN ({placeholders}) ORDER BY name", manager_shop_ids).fetchall()
+            reference_label = ', '.join([row['name'] or 'Boutique sans nom' for row in reference_shops])
+            scope_note = f'Manager : accès limité aux chiens des clients rattachés aux boutiques de référence ({escape(reference_label)}).'
         else:
             dogs = []
             clients = []
-        scope_note = 'Manager : accès limité aux chiens des clients rattachés aux boutiques de référence.'
+            scope_note = 'Manager : aucune boutique de référence assignée pour accéder aux chiens.'
     client_options = ''.join([f"<option value='{client['id']}'>{client['id']} - {escape(client['name'] or '')} ({escape(client['shop_name'] or 'Sans boutique')})</option>" for client in clients])
     rows = ''.join([
         f"<tr><td>{dog['id']}</td><td>{escape(dog['name'] or '')}</td><td>{escape(dog['breed'] or '')}</td><td>{escape(str(dog['weight'] or ''))}</td><td>{dog['washes']}</td><td>{escape(str(dog['age'] or ''))}</td><td>{escape(dog['registered_at'] or '')}</td><td>{escape(dog['client_name'] or '')}<br><small>{escape(dog['client_email'] or '')}</small></td><td>{escape(str(dog['shop_id'] or ''))} - {escape(dog['shop_name'] or 'Sans boutique')}</td><td><div class='actions'><button type='button' class='js-dog-edit' data-id='{dog['id']}' data-client-id='{dog['client_id']}' data-name='{escape(dog['name'] or '')}' data-breed='{escape(dog['breed'] or '')}' data-weight='{escape(str(dog['weight'] or ''))}' data-washes='{dog['washes']}' data-age='{escape(str(dog['age'] or ''))}'>Modifier</button> <form class='inline' method='post'><input type='hidden' name='type' value='dog_delete'><input type='hidden' name='id' value='{dog['id']}'><button class='danger'>Supprimer</button></form></div></td></tr>"
