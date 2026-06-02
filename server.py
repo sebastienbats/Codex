@@ -273,6 +273,42 @@ def db_file_size():
     return os.path.getsize(DB) if os.path.exists(DB) else 0
 
 
+REQUIRED_IMPORT_SCHEMA = {
+    'users': {'id', 'name', 'first_name', 'email', 'password', 'role', 'shop_id', 'phone', 'vcard', 'birth_date', 'registered_at', 'avatar_path'},
+    'shops': {'id', 'name', 'address', 'email', 'phone', 'hours', 'services', 'lat', 'lng', 'template_id', 'photo_path', 'operation_mode'},
+    'dogs': {'id', 'client_id', 'name', 'breed', 'weight', 'washes', 'age', 'registered_at'},
+    'settings': {'key', 'value'},
+}
+
+KNOWN_IMPORT_SCHEMA = {
+    **REQUIRED_IMPORT_SCHEMA,
+    'templates': {'id', 'name', 'description'},
+    'sessions': {'token', 'user_id'},
+    'manager_shops': {'manager_id', 'shop_id'},
+    'stock_items': {'id', 'shop_id', 'name', 'sku', 'quantity', 'unit', 'min_quantity', 'updated_at'},
+    'shop_services': {'id', 'shop_id', 'name', 'category', 'description', 'price', 'active', 'updated_at'},
+}
+
+
+def validate_import_schema(con):
+    tables = {row['name'] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    missing_tables = sorted(set(REQUIRED_IMPORT_SCHEMA) - tables)
+    if missing_tables:
+        return False, 'tables manquantes : ' + ', '.join(missing_tables)
+
+    problems = []
+    for table, required_columns in KNOWN_IMPORT_SCHEMA.items():
+        if table not in tables:
+            continue
+        columns = {row['name'] for row in con.execute(f'PRAGMA table_info({table})')}
+        missing_columns = sorted(required_columns - columns)
+        if missing_columns:
+            problems.append(f"{table}({', '.join(missing_columns)})")
+    if problems:
+        return False, 'colonnes manquantes : ' + '; '.join(problems)
+    return True, ''
+
+
 def handle_db_action(action, files=None):
     files = files or {}
     if action == 'db_backup':
@@ -283,18 +319,19 @@ def handle_db_action(action, files=None):
         uploaded = save_upload(files['database_file'], IMPORT_DIR, 'db_')
         try:
             test_con = sqlite3.connect(uploaded)
+            test_con.row_factory = sqlite3.Row
             result = test_con.execute('PRAGMA quick_check').fetchone()[0]
-            tables = {row[0] for row in test_con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            schema_ok, schema_error = validate_import_schema(test_con)
             test_con.close()
         except sqlite3.DatabaseError as exc:
             return f"Import refusé : fichier SQLite invalide ({escape(str(exc))})."
-        required = {'users', 'shops', 'dogs', 'settings'}
-        if result == 'ok' and required.issubset(tables):
+        if result == 'ok' and schema_ok:
             if os.path.exists(DB):
                 shutil.copyfile(DB, f"washdog_before_import_{secrets.token_hex(4)}.db")
             shutil.copyfile(uploaded, DB)
             return 'Base de données importée avec succès.'
-        return f"Import refusé : schéma WashDog invalide ou contrôle SQLite invalide ({escape(str(result))})."
+        detail = schema_error if result == 'ok' else f"contrôle SQLite invalide ({result})"
+        return f"Import refusé : schéma WashDog invalide ou {escape(detail)}."
     return ''
 
 
