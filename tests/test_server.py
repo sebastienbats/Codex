@@ -262,6 +262,34 @@ class WashDogServerTests(unittest.TestCase):
 
         self.assertIn('Import refusé', message)
 
+    def test_database_import_rejects_tables_with_missing_required_columns(self):
+        malformed_db = os.path.join(self.tmp.name, 'malformed.sqlite')
+        con = sqlite3.connect(malformed_db)
+        con.executescript('''
+CREATE TABLE users(id INTEGER PRIMARY KEY, email TEXT);
+CREATE TABLE shops(id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE dogs(id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE settings(key TEXT PRIMARY KEY);
+''')
+        con.commit()
+        con.close()
+        with open(malformed_db, 'rb') as db_file:
+            content = db_file.read()
+
+        message = server.handle_db_action(
+            'db_import',
+            {'database_file': {'filename': 'malformed.sqlite', 'content': content}},
+        )
+
+        self.assertIn('Import refusé', message)
+        self.assertIn('colonnes manquantes', message)
+        con = server.db()
+        admin = con.execute("SELECT * FROM users WHERE email='admin@washdog.local'").fetchone()
+        user_columns = {row['name'] for row in con.execute('PRAGMA table_info(users)').fetchall()}
+        con.close()
+        self.assertIsNotNone(admin)
+        self.assertIn('role', user_columns)
+
     def test_app_does_not_serve_files_outside_upload_directory(self):
         captured, start_response = self.start_response()
         response = server.app(self.get_environ('/uploads/../server.py'), start_response)
