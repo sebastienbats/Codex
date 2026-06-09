@@ -1,5 +1,5 @@
-import os, re, sqlite3, hashlib, hmac, secrets, shutil
-from datetime import date, datetime
+import os, re, sqlite3, hashlib, hmac, secrets, shutil, json
+from datetime import date, datetime, timezone
 from html import escape
 from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
@@ -7,14 +7,22 @@ from wsgiref.simple_server import make_server
 DB = os.environ.get('WASHDOG_DB', 'washdog.db')
 UPLOAD_DIR = os.environ.get('WASHDOG_UPLOAD_DIR', 'uploads')
 IMPORT_DIR = os.environ.get('WASHDOG_IMPORT_DIR', 'imports')
+CLOUD_BACKUP_ROOT = os.environ.get('WASHDOG_CLOUD_BACKUP_ROOT', 'cloud_backups')
 SECRET = os.environ.get('WASHDOG_SECRET', 'change-me-secret')
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(IMPORT_DIR, exist_ok=True)
+os.makedirs(CLOUD_BACKUP_ROOT, exist_ok=True)
 
 CSS = '''
 body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#14233c}header{background:#0f6fff;color:#fff;padding:1rem}main{max-width:1180px;margin:auto;padding:1rem}.card{background:#fff;padding:1rem;border-radius:10px;margin:1rem 0;border:1px solid #d9e1ef;box-shadow:0 4px 14px rgba(20,35,60,.06)}a{color:#0f6fff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}input,select,button,textarea{box-sizing:border-box;padding:.55rem;margin:.2rem 0 .7rem;width:100%;border:1px solid #cfd8e7;border-radius:7px}button{background:#0f6fff;color:#fff;border:0;font-weight:700;cursor:pointer}.danger{background:#b42318}.nav a{margin-right:1rem;color:#fff}.tabs{display:flex;flex-wrap:wrap;gap:.5rem}.tab{display:inline-block;padding:.55rem .8rem;background:#e9f0ff;border-radius:7px;text-decoration:none;font-weight:700}.tab.active{background:#0f6fff;color:#fff}small{color:#4a5a78}.logo{display:block;max-width:220px;max-height:180px;margin:1rem auto}.shop-photo{max-width:220px;border-radius:8px}.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid #edf1f7;text-align:left;padding:.5rem;vertical-align:top}label{font-weight:700;display:block}.muted{color:#5b6b84}.inline{display:inline}.inline button{width:auto;padding:.45rem .7rem}.actions{display:flex;gap:.5rem;align-items:center;white-space:nowrap}.actions form{margin:0}.actions button{width:auto;margin:0;padding:.45rem .7rem}.table tbody tr:nth-child(even){background:#f8fbff}.table th{background:#eaf1ff;cursor:pointer}.toolbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.toolbar input{max-width:320px;margin:0}.toolbar button{width:auto}.hidden{display:none}.tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.tile{background:#fff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#e9f0ff;display:block;margin-bottom:.7rem}.stat{font-size:2rem;font-weight:800;color:#0f6fff}.chart-card{min-height:260px}.bar-row{display:grid;grid-template-columns:minmax(120px,1fr) 3fr 56px;gap:.5rem;align-items:center;margin:.45rem 0}.bar-track{background:#e9f0ff;border-radius:999px;overflow:hidden;height:1rem}.bar-fill{background:#0f6fff;height:100%}.pie{width:180px;height:180px;border-radius:50%;margin:1rem auto;background:#e9f0ff}.legend{display:flex;flex-wrap:wrap;gap:.5rem}.legend span{display:inline-flex;align-items:center;gap:.25rem}.swatch{width:.8rem;height:.8rem;border-radius:3px;display:inline-block}.chart-pie,.chart-line{display:none}.dashboard.pie-mode .chart-bar,.dashboard.pie-mode .chart-line{display:none}.dashboard.pie-mode .chart-pie{display:block}.dashboard.line-mode .chart-bar,.dashboard.line-mode .chart-pie{display:none}.dashboard.line-mode .chart-line{display:block}.line-chart{width:100%;height:180px}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.kpi{background:#f8fbff;border:1px solid #d9e1ef;border-radius:10px;padding:1rem}
 '''
+
+CLOUD_PROVIDERS = {
+    'google_drive': 'Google Drive',
+    'proton_drive': 'Proton Drive',
+}
+
 
 ADMIN_TABS = [
     ('/admin/dashboard', 'Tableau de bord'),
@@ -273,28 +281,231 @@ def db_file_size():
     return os.path.getsize(DB) if os.path.exists(DB) else 0
 
 
-def handle_db_action(action, files=None):
+def cloud_provider_label(provider):
+    return CLOUD_PROVIDERS.get(provider, '')
+
+
+def cloud_provider_dir(provider):
+    if provider not in CLOUD_PROVIDERS:
+        return None
+    path = os.path.normpath(os.path.join(CLOUD_BACKUP_ROOT, provider))
+    root = os.path.abspath(CLOUD_BACKUP_ROOT)
+    if os.path.commonpath([root, os.path.abspath(path)]) != root:
+        return None
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def cloud_backup_path(provider, filename):
+    directory = cloud_provider_dir(provider)
+    if not directory:
+        return None
+    safe_name = os.path.basename(filename or '')
+    if safe_name != filename or not safe_name:
+        return None
+    path = os.path.normpath(os.path.join(directory, safe_name))
+    if os.path.commonpath([os.path.abspath(directory), os.path.abspath(path)]) != os.path.abspath(directory):
+        return None
+    return path
+
+
+def database_tables(con):
+    return [
+        row['name'] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
+    ]
+
+
+def database_signature(con):
+    signature = {}
+    for table in database_tables(con):
+        rows = con.execute(f'SELECT rowid AS _washdog_rowid,* FROM "{table}" ORDER BY rowid').fetchall()
+        table_signature = {}
+        for row in rows:
+            data = dict(row)
+            rowid = str(data.pop('_washdog_rowid'))
+            serialized = json.dumps(data, sort_keys=True, default=str, ensure_ascii=False)
+            table_signature[rowid] = hashlib.sha256(serialized.encode()).hexdigest()
+        signature[table] = table_signature
+    return signature
+
+
+def incremental_payload(previous_signature):
+    con = db()
+    payload = {
+        'format': 'washdog_incremental_backup_v1',
+        'created_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'tables': {},
+    }
+    current_signature = database_signature(con)
+    for table in database_tables(con):
+        previous_rows = previous_signature.get(table, {}) if isinstance(previous_signature, dict) else {}
+        current_rows = current_signature.get(table, {})
+        changed = []
+        deleted = []
+        for rowid, digest in current_rows.items():
+            if previous_rows.get(rowid) != digest:
+                row = con.execute(f'SELECT rowid AS _washdog_rowid,* FROM "{table}" WHERE rowid=?', (rowid,)).fetchone()
+                row_data = dict(row)
+                row_data['rowid'] = row_data.pop('_washdog_rowid')
+                changed.append(row_data)
+        for rowid in previous_rows:
+            if rowid not in current_rows:
+                deleted.append(rowid)
+        payload['tables'][table] = {'changed': changed, 'deleted': deleted}
+    con.close()
+    return payload, current_signature
+
+
+def save_cloud_backup(provider, backup_mode):
+    label = cloud_provider_label(provider)
+    directory = cloud_provider_dir(provider)
+    if not directory:
+        return 'Sauvegarde cloud refusée : fournisseur inconnu.'
+    if backup_mode not in ('full', 'incremental'):
+        return 'Sauvegarde cloud refusée : type de sauvegarde inconnu.'
+    if not os.path.exists(DB):
+        return 'Sauvegarde cloud impossible : base de données introuvable.'
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    token = secrets.token_hex(3)
+    if backup_mode == 'full':
+        filename = f'washdog_full_{stamp}_{token}.db'
+        shutil.copyfile(DB, os.path.join(directory, filename))
+        con = db()
+        signature = database_signature(con)
+        con.close()
+        set_setting(f'cloud_backup_signature_{provider}', json.dumps(signature, sort_keys=True))
+        manifest = {
+            'format': 'washdog_full_backup_v1',
+            'provider': provider,
+            'type': 'full',
+            'created_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'database_file': filename,
+        }
+        with open(os.path.join(directory, f'{filename}.json'), 'w', encoding='utf-8') as manifest_file:
+            json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
+        return f'Sauvegarde complète cloud créée sur {label} : {filename}'
+    previous_raw = setting(f'cloud_backup_signature_{provider}', '{}')
+    try:
+        previous_signature = json.loads(previous_raw)
+    except json.JSONDecodeError:
+        previous_signature = {}
+    payload, signature = incremental_payload(previous_signature)
+    filename = f'washdog_incremental_{stamp}_{token}.json'
+    payload['provider'] = provider
+    payload['type'] = 'incremental'
+    with open(os.path.join(directory, filename), 'w', encoding='utf-8') as backup_file:
+        json.dump(payload, backup_file, indent=2, ensure_ascii=False)
+    set_setting(f'cloud_backup_signature_{provider}', json.dumps(signature, sort_keys=True))
+    changed_count = sum(len(table['changed']) + len(table['deleted']) for table in payload['tables'].values())
+    return f'Sauvegarde incrémentielle cloud créée sur {label} : {filename} ({changed_count} changement(s))'
+
+
+def validate_sqlite_backup(path):
+    try:
+        test_con = sqlite3.connect(path)
+        result = test_con.execute('PRAGMA quick_check').fetchone()[0]
+        tables = {row[0] for row in test_con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        test_con.close()
+    except sqlite3.DatabaseError as exc:
+        return False, f'fichier SQLite invalide ({escape(str(exc))})'
+    required = {'users', 'shops', 'dogs', 'settings'}
+    if result != 'ok' or not required.issubset(tables):
+        return False, f'schéma WashDog invalide ou contrôle SQLite invalide ({escape(str(result))})'
+    return True, ''
+
+
+def restore_cloud_backup(provider, filename):
+    label = cloud_provider_label(provider)
+    path = cloud_backup_path(provider, filename)
+    if not label or not path or not os.path.isfile(path):
+        return 'Restauration refusée : backup cloud introuvable.'
+    if filename.endswith('.db'):
+        valid, reason = validate_sqlite_backup(path)
+        if not valid:
+            return f'Restauration refusée : {reason}.'
+        if os.path.exists(DB):
+            shutil.copyfile(DB, os.path.join(os.path.dirname(DB) or '.', f'washdog_before_cloud_restore_{secrets.token_hex(4)}.db'))
+        shutil.copyfile(path, DB)
+        return f'Base de données restaurée depuis {label} : {filename}'
+    if not filename.endswith('.json'):
+        return 'Restauration refusée : format de backup cloud inconnu.'
+    try:
+        with open(path, encoding='utf-8') as backup_file:
+            payload = json.load(backup_file)
+    except (OSError, json.JSONDecodeError) as exc:
+        return f'Restauration refusée : backup incrémentiel invalide ({escape(str(exc))}).'
+    if payload.get('format') != 'washdog_incremental_backup_v1' or not isinstance(payload.get('tables'), dict):
+        return 'Restauration refusée : backup incrémentiel WashDog invalide.'
+    if os.path.exists(DB):
+        shutil.copyfile(DB, os.path.join(os.path.dirname(DB) or '.', f'washdog_before_cloud_restore_{secrets.token_hex(4)}.db'))
+    con = db()
+    try:
+        for table, changes in payload['tables'].items():
+            if table not in database_tables(con):
+                continue
+            columns = [row['name'] for row in con.execute(f'PRAGMA table_info("{table}")').fetchall()]
+            for rowid in changes.get('deleted', []):
+                con.execute(f'DELETE FROM "{table}" WHERE rowid=?', (rowid,))
+            for row in changes.get('changed', []):
+                data = {key: row.get(key) for key in columns}
+                names = ['rowid'] + columns
+                placeholders = ','.join(['?'] * len(names))
+                values = [row.get('rowid')] + [data[column] for column in columns]
+                con.execute(f'INSERT OR REPLACE INTO "{table}" ({",".join(names)}) VALUES ({placeholders})', values)
+        con.commit()
+    except sqlite3.DatabaseError as exc:
+        con.rollback()
+        con.close()
+        return f'Restauration refusée : application du backup incrémentiel impossible ({escape(str(exc))}).'
+    con.close()
+    return f'Base de données restaurée depuis le backup incrémentiel {label} : {filename}'
+
+
+def cloud_backup_options(selected_provider='google_drive'):
+    options_html = ''
+    for key, label in CLOUD_PROVIDERS.items():
+        selected = ' selected' if key == selected_provider else ''
+        options_html += f"<option value='{key}'{selected}>{label}</option>"
+    return options_html
+
+
+def list_cloud_backups(provider=None):
+    items = []
+    providers = [provider] if provider in CLOUD_PROVIDERS else CLOUD_PROVIDERS.keys()
+    for key in providers:
+        directory = cloud_provider_dir(key)
+        if not directory:
+            continue
+        for name in sorted(os.listdir(directory), reverse=True):
+            if name.endswith('.db') or (name.endswith('.json') and not name.endswith('.db.json')):
+                path = os.path.join(directory, name)
+                items.append({'provider': key, 'provider_label': CLOUD_PROVIDERS[key], 'name': name, 'size': os.path.getsize(path)})
+    return items
+
+
+def handle_db_action(action, data=None, files=None):
+    if files is None and isinstance(data, dict) and any(isinstance(value, dict) and 'content' in value for value in data.values()):
+        files = data
+        data = {}
+    data = data or {}
     files = files or {}
     if action == 'db_backup':
         backup_name = f"washdog_backup_{secrets.token_hex(4)}.db"
         shutil.copyfile(DB, backup_name)
         return f"Sauvegarde créée : {backup_name}"
+    if action == 'db_cloud_backup':
+        return save_cloud_backup(data.get('cloud_provider', 'google_drive'), data.get('backup_mode', 'full'))
+    if action == 'db_cloud_restore':
+        return restore_cloud_backup(data.get('cloud_provider', 'google_drive'), data.get('backup_file', ''))
     if action == 'db_import' and files.get('database_file'):
         uploaded = save_upload(files['database_file'], IMPORT_DIR, 'db_')
-        try:
-            test_con = sqlite3.connect(uploaded)
-            result = test_con.execute('PRAGMA quick_check').fetchone()[0]
-            tables = {row[0] for row in test_con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            test_con.close()
-        except sqlite3.DatabaseError as exc:
-            return f"Import refusé : fichier SQLite invalide ({escape(str(exc))})."
-        required = {'users', 'shops', 'dogs', 'settings'}
-        if result == 'ok' and required.issubset(tables):
+        valid, reason = validate_sqlite_backup(uploaded)
+        if valid:
             if os.path.exists(DB):
                 shutil.copyfile(DB, f"washdog_before_import_{secrets.token_hex(4)}.db")
             shutil.copyfile(uploaded, DB)
             return 'Base de données importée avec succès.'
-        return f"Import refusé : schéma WashDog invalide ou contrôle SQLite invalide ({escape(str(result))})."
+        return f"Import refusé : {reason}."
     return ''
 
 
@@ -1332,12 +1543,25 @@ document.getElementById('exportPdfBtn').onclick = () => {{
     return [html_page('Gestion des clients', admin_shell('/admin/clients', 'Gestion des clients', body), user)]
 
 def database_forms(active_path):
+    provider_options = cloud_backup_options()
+    backup_options = ''.join(
+        f"<option value='{escape(item['provider'])}|{escape(item['name'])}'>{escape(item['provider_label'])} · {escape(item['name'])} · {item['size']} octets</option>"
+        for item in list_cloud_backups()
+    )
+    restore_select = (
+        f"<select name='backup_choice' required>{backup_options}</select>"
+        if backup_options
+        else "<p class='muted'>Aucun backup cloud disponible pour le moment.</p>"
+    )
+    restore_button = '<button>Restaurer le backup sélectionné</button>' if backup_options else ''
     return f"""
-<div class='card'><h3>Informations base de données</h3><p><strong>Nom :</strong> {escape(DB)}<br><strong>Taille :</strong> {db_file_size()} octets</p></div>
+<div class='card'><h3>Informations base de données</h3><p><strong>Nom :</strong> {escape(DB)}<br><strong>Taille :</strong> {db_file_size()} octets<br><strong>Dossier cloud :</strong> {escape(CLOUD_BACKUP_ROOT)}</p></div>
 <div class='grid'>
-  <div class='card'><h3>Sauvegarde</h3><form method='post'><input type='hidden' name='type' value='db_backup'><button>Sauvegarde de la base de données</button></form></div>
+  <div class='card'><h3>Sauvegarde locale</h3><form method='post'><input type='hidden' name='type' value='db_backup'><button>Sauvegarde locale de la base de données</button></form></div>
   <div class='card'><h3>Export</h3><form method='post'><input type='hidden' name='type' value='db_export'><button>Export de la base de données</button></form></div>
   <div class='card'><h3>Import</h3><form method='post' enctype='multipart/form-data'><input type='hidden' name='type' value='db_import'><label>database_file</label><input type='file' name='database_file' accept='.db,.sqlite,.sqlite3' required><button>Import de la base de données</button></form></div>
+  <div class='card'><h3>Sauvegarde cloud</h3><form method='post'><input type='hidden' name='type' value='db_cloud_backup'><label>Fournisseur cloud</label><select name='cloud_provider'>{provider_options}</select><label>Type de backup</label><select name='backup_mode'><option value='full'>Backup complet</option><option value='incremental'>Backup incrémentiel</option></select><small>Les backups sont créés dans un dossier synchronisable Google Drive ou Proton Drive configuré côté serveur.</small><button>Sauvegarder sur le cloud</button></form></div>
+  <div class='card'><h3>Restauration cloud</h3><form method='post'><input type='hidden' name='type' value='db_cloud_restore'>{restore_select}{restore_button}</form><small>Une copie locale de sécurité est créée avant chaque restauration.</small></div>
 </div>
 """
 
@@ -1354,7 +1578,11 @@ def admin_database(environ, start_response, user):
             data, files = parse_post(environ), {}
         if data.get('type') == 'db_export':
             return export_db(start_response)
-        message = handle_db_action(data.get('type'), files)
+        if data.get('type') == 'db_cloud_restore' and data.get('backup_choice'):
+            provider, _, backup_file = data.get('backup_choice', '').partition('|')
+            data['cloud_provider'] = provider
+            data['backup_file'] = backup_file
+        message = handle_db_action(data.get('type'), data, files)
     content = (f"<div class='card'><strong>{escape(message)}</strong></div>" if message else '') + database_forms('/admin/database')
     start_response('200 OK', [('Content-Type', 'text/html')])
     return [html_page('Gestion de la base de données', admin_shell('/admin/database', 'Gestion de la base de données', content), user)]
@@ -1384,7 +1612,11 @@ def admin_security(environ, start_response, user):
         elif action == 'db_export':
             return export_db(start_response)
         else:
-            message = handle_db_action(action, files)
+            if action == 'db_cloud_restore' and data.get('backup_choice'):
+                provider, _, backup_file = data.get('backup_choice', '').partition('|')
+                data['cloud_provider'] = provider
+                data['backup_file'] = backup_file
+            message = handle_db_action(action, data, files)
     current_logo = setting('home_logo_path')
     logo_preview = f"<img class='logo' src='/{escape(current_logo)}' alt='Logo actuel'>" if current_logo else '<p class="muted">Aucun logo personnalisé.</p>'
     content = f"""

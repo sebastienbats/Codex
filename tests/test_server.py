@@ -13,17 +13,21 @@ class WashDogServerTests(unittest.TestCase):
         self.old_db = server.DB
         self.old_upload_dir = server.UPLOAD_DIR
         self.old_import_dir = server.IMPORT_DIR
+        self.old_cloud_backup_root = server.CLOUD_BACKUP_ROOT
         server.DB = os.path.join(self.tmp.name, 'washdog.db')
         server.UPLOAD_DIR = os.path.join(self.tmp.name, 'uploads')
         server.IMPORT_DIR = os.path.join(self.tmp.name, 'imports')
+        server.CLOUD_BACKUP_ROOT = os.path.join(self.tmp.name, 'cloud_backups')
         os.makedirs(server.UPLOAD_DIR, exist_ok=True)
         os.makedirs(server.IMPORT_DIR, exist_ok=True)
+        os.makedirs(server.CLOUD_BACKUP_ROOT, exist_ok=True)
         server.init()
 
     def tearDown(self):
         server.DB = self.old_db
         server.UPLOAD_DIR = self.old_upload_dir
         server.IMPORT_DIR = self.old_import_dir
+        server.CLOUD_BACKUP_ROOT = self.old_cloud_backup_root
         self.tmp.cleanup()
 
     def start_response(self):
@@ -253,6 +257,82 @@ class WashDogServerTests(unittest.TestCase):
         self.assertTrue(os.path.exists(saved))
         self.assertNotIn('..', os.path.basename(saved))
         self.assertTrue(os.path.basename(saved).endswith('my_logo_.png'))
+
+
+    def test_cloud_full_backup_and_restore_from_google_drive(self):
+        con = server.db()
+        con.execute("INSERT INTO shops(id,name,address) VALUES(7,'Cloud Shop','Rue Cloud')")
+        con.commit()
+        con.close()
+
+        message = server.handle_db_action(
+            'db_cloud_backup',
+            {'cloud_provider': 'google_drive', 'backup_mode': 'full'},
+        )
+
+        self.assertIn('Sauvegarde complète cloud créée sur Google Drive', message)
+        backups = server.list_cloud_backups('google_drive')
+        full_backup = next(item for item in backups if item['name'].endswith('.db'))
+
+        con = server.db()
+        con.execute("DELETE FROM shops WHERE id=7")
+        con.commit()
+        con.close()
+
+        restore_message = server.handle_db_action(
+            'db_cloud_restore',
+            {'cloud_provider': 'google_drive', 'backup_file': full_backup['name']},
+        )
+
+        self.assertIn('Base de données restaurée depuis Google Drive', restore_message)
+        con = server.db()
+        restored = con.execute('SELECT name FROM shops WHERE id=7').fetchone()
+        con.close()
+        self.assertEqual(restored['name'], 'Cloud Shop')
+
+    def test_cloud_incremental_backup_and_restore_from_proton_drive(self):
+        server.handle_db_action(
+            'db_cloud_backup',
+            {'cloud_provider': 'proton_drive', 'backup_mode': 'full'},
+        )
+        con = server.db()
+        con.execute("INSERT INTO shops(id,name,address) VALUES(8,'Incremental Shop','Rue Proton')")
+        con.commit()
+        con.close()
+
+        message = server.handle_db_action(
+            'db_cloud_backup',
+            {'cloud_provider': 'proton_drive', 'backup_mode': 'incremental'},
+        )
+
+        self.assertIn('Sauvegarde incrémentielle cloud créée sur Proton Drive', message)
+        incremental = next(item for item in server.list_cloud_backups('proton_drive') if item['name'].endswith('.json'))
+
+        con = server.db()
+        con.execute("DELETE FROM shops WHERE id=8")
+        con.commit()
+        con.close()
+
+        restore_message = server.handle_db_action(
+            'db_cloud_restore',
+            {'cloud_provider': 'proton_drive', 'backup_file': incremental['name']},
+        )
+
+        self.assertIn('backup incrémentiel Proton Drive', restore_message)
+        con = server.db()
+        restored = con.execute('SELECT name FROM shops WHERE id=8').fetchone()
+        con.close()
+        self.assertEqual(restored['name'], 'Incremental Shop')
+
+    def test_database_page_contains_cloud_backup_controls(self):
+        html = server.database_forms('/admin/database')
+
+        self.assertIn('Sauvegarde cloud', html)
+        self.assertIn('Google Drive', html)
+        self.assertIn('Proton Drive', html)
+        self.assertIn('Backup complet', html)
+        self.assertIn('Backup incrémentiel', html)
+        self.assertIn('Restauration cloud', html)
 
     def test_invalid_database_import_is_reported_without_exception(self):
         message = server.handle_db_action(
