@@ -15,6 +15,7 @@ Variables utiles :
 - `WASHDOG_DB` : chemin de la base SQLite (défaut : `washdog.db`)
 - `WASHDOG_UPLOAD_DIR` : dossier des fichiers téléversés (défaut : `uploads`)
 - `WASHDOG_IMPORT_DIR` : dossier temporaire des imports (défaut : `imports`)
+- `WASHDOG_CLOUD_BACKUP_ROOT` : dossier local synchronisable contenant les backups cloud par fournisseur (`google_drive` et `proton_drive`, défaut : `cloud_backups`)
 - `WASHDOG_SECRET` : secret HMAC des cookies de session. À changer en production.
 
 ## Tests
@@ -44,11 +45,12 @@ Après la première connexion, changez le mot de passe admin dans `/admin/securi
 - `/admin/clients` : gestion des clients (liste, création, édition/modification, suppression, affichage tableau/vignettes, recherche, tri, exports CSV/Markdown/PDF, import vCard 3.0 dans le formulaire de création)
 - `/admin/managers` : gestion des managers (liste, création, édition/modification, suppression, boutiques de référence)
 - `/admin/dogs` : gestion des chiens par l'admin et les managers référents de boutique (liste, création, édition/modification, suppression)
-- `/admin/database` : gestion de la base de données (sauvegarde, import validé par `PRAGMA quick_check`, export)
-- `/admin/security` : gestion de la sécurité (mot de passe admin, logo d'accueil, nom/taille de base, sauvegarde/import/export)
+- `/admin/database` : gestion de la base de données (sauvegarde locale, backups cloud complets/incrémentiels vers Google Drive ou Proton Drive via dossier synchronisable, restauration cloud, import validé par `PRAGMA quick_check`, export)
+- `/admin/security` : gestion de la sécurité (mot de passe admin, logo d'accueil, nom/taille de base, sauvegarde/import/export et backups/restaurations cloud)
 - `/client` et `/dogs` : privés (client connecté)
 
 ## Base de données
 - SQLite locale : `washdog.db` par défaut, configurable par `WASHDOG_DB`
+- Backups cloud : l'application écrit les fichiers dans `WASHDOG_CLOUD_BACKUP_ROOT/google_drive` ou `WASHDOG_CLOUD_BACKUP_ROOT/proton_drive`; pointez ce dossier vers un client de synchronisation Google Drive ou Proton Drive côté serveur.
 - Tables : `users`, `templates`, `shops`, `dogs`, `sessions`, `settings`, `manager_shops`, `stock_items`, `shop_services`
 - Le logo de la page d'accueil est conservé dans `settings.home_logo_path` et les fichiers importés sont stockés dans `uploads/`.
